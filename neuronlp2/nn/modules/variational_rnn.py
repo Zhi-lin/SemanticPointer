@@ -11,7 +11,7 @@ from .._functions import variational_rnn as rnn_F
 def default_initializer(hidden_size):
     stdv = 1.0 / math.sqrt(hidden_size)
     def forward(tensor):
-        nn.init.uniform(tensor, -stdv, stdv)
+        nn.init.uniform_(tensor, -stdv, stdv)
 
     return forward
 

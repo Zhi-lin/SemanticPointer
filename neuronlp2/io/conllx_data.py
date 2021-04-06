@@ -10,18 +10,18 @@ import torch
 from torch.autograd import Variable
 
 # Special vocabulary symbols - we always put them at the start.
-PAD = b"_PAD"
-PAD_POS = b"_PAD_POS"
-PAD_TYPE = b"_<PAD>"
-PAD_CHAR = b"_PAD_CHAR"
-ROOT = b"_ROOT"
-ROOT_POS = b"_ROOT_POS"
-ROOT_TYPE = b"_<ROOT>"
-ROOT_CHAR = b"_ROOT_CHAR"
-END = b"_END"
-END_POS = b"_END_POS"
-END_TYPE = b"_<END>"
-END_CHAR = b"_END_CHAR"
+PAD = "_PAD"
+PAD_POS = "_PAD_POS"
+PAD_TYPE = "_<PAD>"
+PAD_CHAR = "_PAD_CHAR"
+ROOT = "_ROOT"
+ROOT_POS = "_ROOT_POS"
+ROOT_TYPE = "_<ROOT>"
+ROOT_CHAR = "_ROOT_CHAR"
+END = "_END"
+END_POS = "_END_POS"
+END_TYPE = "_<END>"
+END_CHAR = "_END_CHAR"
 _START_VOCAB = [PAD, ROOT, END]
 
 UNK_ID = 0
@@ -33,21 +33,20 @@ NUM_SYMBOLIC_TAGS = 3
 
 _buckets = [10, 15, 20, 25, 30, 35, 40, 50, 60, 70, 80, 90, 100, 140]
 
-#from .reader import CoNLLXReader
+# from .reader import CoNLLXReader
 
-from semantic_reader import CoNLLXReader
+from .semantic_reader import CoNLLXReader
 
 
-def create_alphabets(alphabet_directory, train_path, data_paths=None, max_vocabulary_size=50000, embedd_dict=None,
-                     min_occurence=1, normalize_digits=True):
+def create_alphabets(alphabet_directory, train_path, data_paths=None, max_vocabulary_size=50000, embedd_dict=None, min_occurence=1, normalize_digits=True):
     def expand_vocab():
         vocab_set = set(vocab_list)
-	lemma_vocab_set = set(lemma_vocab_list)
-	for data_path in data_paths:
+        lemma_vocab_set = set(lemma_vocab_list)
+        for data_path in data_paths:
             # logger.info("Processing data: %s" % data_path)
             with open(data_path, 'r') as file:
                 for line in file:
-                    line = line.decode('utf-8')
+                    #line = line.decode('utf-8')
                     line = line.strip()
                     if len(line) == 0:
                         continue
@@ -56,34 +55,29 @@ def create_alphabets(alphabet_directory, train_path, data_paths=None, max_vocabu
                     for char in tokens[1]:
                         char_alphabet.add(char)
 
-                    word = utils.DIGIT_RE.sub(b"0", tokens[1]) if normalize_digits else tokens[1]
+                    word = utils.DIGIT_RE.sub("0", tokens[1]) if normalize_digits else tokens[1]
                     pos = tokens[3]
                     pos_alphabet.add(pos)
 
-		    
+                    # type = tokens[7]
+                    # type_alphabet.add(type)
+                    # print line, len(tokens)
 
-		    #type = tokens[7]
-		    #type_alphabet.add(type)
-		    #print line, len(tokens)
-
-		    for i in range(len(tokens)-4):
-			    type = tokens[4+i]	
-		    	    type_alphabet.add(type)
-			    #print type
-
-		    
-		    
+                    for i in range(len(tokens) - 4):
+                        type = tokens[4 + i]
+                        type_alphabet.add(type)  # print type
 
                     if word not in vocab_set and (word in embedd_dict or word.lower() in embedd_dict):
                         vocab_set.add(word)
                         vocab_list.append(word)
 
-		    #Tratamos los lemmas como words
-		    lemma = utils.DIGIT_RE.sub(b"0", tokens[2]) if normalize_digits else tokens[2]
-		    if lemma not in lemma_vocab_set and (lemma in embedd_dict or lemma.lower() in embedd_dict):
-                    	lemma_vocab_set.add(lemma)
-			lemma_vocab_list.append(lemma)
-	#exit(0)
+                    # Tratamos los lemmas como words
+                    lemma = utils.DIGIT_RE.sub("0", tokens[2]) if normalize_digits else tokens[2]
+                    if lemma not in lemma_vocab_set and (lemma in embedd_dict or lemma.lower() in embedd_dict):
+                        lemma_vocab_set.add(lemma)
+                        lemma_vocab_list.append(lemma)
+
+    # exit(0)
 
     logger = get_logger("Create Alphabets")
     word_alphabet = Alphabet('word', defualt_value=True, singleton=True)
@@ -107,10 +101,10 @@ def create_alphabets(alphabet_directory, train_path, data_paths=None, max_vocabu
         type_alphabet.add(END_TYPE)
 
         vocab = dict()
-	lemma_vocab = dict()
-        with open(train_path, 'r') as file:
+        lemma_vocab = dict()
+        with open(train_path, 'r',encoding="utf-8") as file:
             for line in file:
-                line = line.decode('utf-8')
+                #line = line.decode('utf-8')
                 line = line.strip()
                 if len(line) == 0:
                     continue
@@ -118,42 +112,38 @@ def create_alphabets(alphabet_directory, train_path, data_paths=None, max_vocabu
                 tokens = line.split('\t')
                 for char in tokens[1]:
                     char_alphabet.add(char)
-		"""
-                word = utils.DIGIT_RE.sub(b"0", tokens[1]) if normalize_digits else tokens[1]
-                pos = tokens[4]
-                type = tokens[7]
+                """
+                        word = utils.DIGIT_RE.sub(b"0", tokens[1]) if normalize_digits else tokens[1]
+                        pos = tokens[4]
+                        type = tokens[7]
+        
+                        pos_alphabet.add(pos)
+                        type_alphabet.add(type)
+                """
 
-                pos_alphabet.add(pos)
-                type_alphabet.add(type)
-		"""
-
-
-		word = utils.DIGIT_RE.sub(b"0", tokens[1]) if normalize_digits else tokens[1]
+                word = utils.DIGIT_RE.sub("0", tokens[1]) if normalize_digits else tokens[1]
                 pos = tokens[3]
                 pos_alphabet.add(pos)
 
-		
-		for i in range(len(tokens)-4):
-			type = tokens[4+i]	
-		  	type_alphabet.add(type)
-
-
+                for i in range(len(tokens) - 4):
+                    type = tokens[4 + i]
+                    type_alphabet.add(type)
 
                 if word in vocab:
                     vocab[word] += 1
                 else:
                     vocab[word] = 1
 
-		#LEMMAS
-		lemma = utils.DIGIT_RE.sub(b"0", tokens[2]) if normalize_digits else tokens[2]
-		if lemma in lemma_vocab:
+                # LEMMAS
+                lemma = utils.DIGIT_RE.sub("0", tokens[2]) if normalize_digits else tokens[2]
+                if lemma in lemma_vocab:
                     lemma_vocab[lemma] += 1
                 else:
                     lemma_vocab[lemma] = 1
 
         # collect singletons
         singletons = set([word for word, count in vocab.items() if count <= min_occurence])
-	lemma_singletons = set([lemma for lemma, count in lemma_vocab.items() if count <= min_occurence])
+        lemma_singletons = set([lemma for lemma, count in lemma_vocab.items() if count <= min_occurence])
 
         # if a singleton is in pretrained embedding dict, set the count to min_occur + c
         if embedd_dict is not None:
@@ -161,12 +151,10 @@ def create_alphabets(alphabet_directory, train_path, data_paths=None, max_vocabu
                 if word in embedd_dict or word.lower() in embedd_dict:
                     vocab[word] += min_occurence
 
-
-	if embedd_dict is not None:
+        if embedd_dict is not None:
             for lemma in lemma_vocab.keys():
                 if lemma in embedd_dict or lemma.lower() in embedd_dict:
                     lemma_vocab[lemma] += min_occurence
-
 
         vocab_list = _START_VOCAB + sorted(vocab, key=vocab.get, reverse=True)
         logger.info("Total Vocabulary Size: %d" % len(vocab_list))
@@ -174,19 +162,16 @@ def create_alphabets(alphabet_directory, train_path, data_paths=None, max_vocabu
         vocab_list = [word for word in vocab_list if word in _START_VOCAB or vocab[word] > min_occurence]
         logger.info("Total Vocabulary Size (w.o rare words): %d" % len(vocab_list))
 
-
-	lemma_vocab_list = _START_VOCAB + sorted(lemma_vocab, key=lemma_vocab.get, reverse=True)
+        lemma_vocab_list = _START_VOCAB + sorted(lemma_vocab, key=lemma_vocab.get, reverse=True)
         logger.info("Total LEMMA Vocabulary Size: %d" % len(lemma_vocab_list))
         logger.info("Total LEMMA Singleton Size:  %d" % len(lemma_singletons))
         lemma_vocab_list = [lemma for lemma in lemma_vocab_list if lemma in _START_VOCAB or lemma_vocab[lemma] > min_occurence]
         logger.info("Total LEMMA Vocabulary Size (w.o rare words): %d" % len(lemma_vocab_list))
 
-
         if len(vocab_list) > max_vocabulary_size:
             vocab_list = vocab_list[:max_vocabulary_size]
 
-
-	if len(lemma_vocab_list) > max_vocabulary_size:
+        if len(lemma_vocab_list) > max_vocabulary_size:
             lemma_vocab_list = lemma_vocab_list[:max_vocabulary_size]
 
         if data_paths is not None and embedd_dict is not None:
@@ -197,22 +182,23 @@ def create_alphabets(alphabet_directory, train_path, data_paths=None, max_vocabu
             if word in singletons:
                 word_alphabet.add_singleton(word_alphabet.get_index(word))
 
-	for lemma in lemma_vocab_list:
+        for lemma in lemma_vocab_list:
             lemma_alphabet.add(lemma)
             if lemma in lemma_singletons:
                 lemma_alphabet.add_singleton(lemma_alphabet.get_index(lemma))
+
 
         word_alphabet.save(alphabet_directory)
         char_alphabet.save(alphabet_directory)
         pos_alphabet.save(alphabet_directory)
         type_alphabet.save(alphabet_directory)
-	lemma_alphabet.save(alphabet_directory)
+        lemma_alphabet.save(alphabet_directory)
     else:
         word_alphabet.load(alphabet_directory)
         char_alphabet.load(alphabet_directory)
         pos_alphabet.load(alphabet_directory)
         type_alphabet.load(alphabet_directory)
-	lemma_alphabet.load(alphabet_directory)
+        lemma_alphabet.load(alphabet_directory)
 
     word_alphabet.close()
     char_alphabet.close()
@@ -227,8 +213,7 @@ def create_alphabets(alphabet_directory, train_path, data_paths=None, max_vocabu
     return word_alphabet, char_alphabet, pos_alphabet, type_alphabet, lemma_alphabet
 
 
-def read_data(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, max_size=None,
-              normalize_digits=True, symbolic_root=False, symbolic_end=False):
+def read_data(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, max_size=None, normalize_digits=True, symbolic_root=False, symbolic_end=False):
     data = [[] for _ in _buckets]
     max_char_length = [0 for _ in _buckets]
     print('Reading data from %s' % source_path)
@@ -382,16 +367,13 @@ def iterate_batch(data, batch_size, word_alphabet=None, unk_replace=0., shuffle=
                 excerpt = indices[start_idx:start_idx + batch_size]
             else:
                 excerpt = slice(start_idx, start_idx + batch_size)
-            yield wid_inputs[excerpt], cid_inputs[excerpt], pid_inputs[excerpt], hid_inputs[excerpt], \
-                  tid_inputs[excerpt], masks[excerpt]
+            yield wid_inputs[excerpt], cid_inputs[excerpt], pid_inputs[excerpt], hid_inputs[excerpt], tid_inputs[excerpt], masks[excerpt]
 
 
-def read_data_to_variable(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, max_size=None,
-                          normalize_digits=True, symbolic_root=False, symbolic_end=False,
-                          use_gpu=False, volatile=False):
-    data, max_char_length = read_data(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet,
-                                      max_size=max_size, normalize_digits=normalize_digits,
-                                      symbolic_root=symbolic_root, symbolic_end=symbolic_end)
+def read_data_to_variable(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, max_size=None, normalize_digits=True, symbolic_root=False, symbolic_end=False, use_gpu=False,
+                          volatile=False):
+    data, max_char_length = read_data(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, max_size=max_size, normalize_digits=normalize_digits, symbolic_root=symbolic_root,
+                                      symbolic_end=symbolic_end)
     bucket_sizes = [len(data[b]) for b in range(len(_buckets))]
 
     data_variable = []
@@ -523,5 +505,4 @@ def iterate_batch_variable(data, batch_size, unk_replace=0., shuffle=False):
                 excerpt = indices[start_idx:start_idx + batch_size]
             else:
                 excerpt = slice(start_idx, start_idx + batch_size)
-            yield words[excerpt], chars[excerpt], pos[excerpt], heads[excerpt], types[excerpt], \
-                  masks[excerpt], lengths[excerpt]
+            yield words[excerpt], chars[excerpt], pos[excerpt], heads[excerpt], types[excerpt], masks[excerpt], lengths[excerpt]

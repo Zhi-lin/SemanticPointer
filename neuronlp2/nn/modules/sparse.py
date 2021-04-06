@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from torch.nn.parameter import Parameter
-
+import torch.nn.functional as F
 from ..init import assign_tensor
 
 
@@ -81,7 +81,7 @@ class Embedding(nn.Module):
             input = input.view(num_inputs, input_size[-1])
 
         output_size = input_size + (self.embedding_dim,)
-        return self._backend.Embedding.apply(
+        return F.embedding(
             input, self.weight,
             padding_idx, self.max_norm, self.norm_type,
             self.scale_grad_by_freq, self.sparse).view(output_size)

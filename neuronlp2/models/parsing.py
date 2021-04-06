@@ -22,8 +22,8 @@ class PriorOrder(Enum):
 
 
 class BiRecurrentConvBiAffine(nn.Module):
-    def __init__(self, word_dim, num_words, char_dim, num_chars, pos_dim, num_pos, num_filters, kernel_size, rnn_mode, hidden_size, num_layers, num_labels, arc_space, type_space,
-                 embedd_word=None, embedd_char=None, embedd_pos=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33), biaffine=True, pos=True, char=True):
+    def __init__(self, word_dim, num_words, char_dim, num_chars, pos_dim, num_pos, num_filters, kernel_size, rnn_mode, hidden_size, num_layers, num_labels, arc_space, type_space, embedd_word=None,
+                 embedd_char=None, embedd_pos=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33), biaffine=True, pos=True, char=True):
         super(BiRecurrentConvBiAffine, self).__init__()
 
         self.word_embedd = Embedding(num_words, word_dim, init_embedding=embedd_word)
@@ -277,11 +277,9 @@ class BiRecurrentConvBiAffine(nn.Module):
 
 
 class StackPtrNet(nn.Module):
-    def __init__(self, word_dim, num_words, char_dim, num_chars, pos_dim, num_pos, num_filters, kernel_size,
-                 rnn_mode, input_size_decoder, hidden_size, encoder_layers, decoder_layers,
-                 num_labels, arc_space, type_space,
-                 embedd_word=None, embedd_char=None, embedd_pos=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33),
-                 biaffine=True, pos=True, char=True, prior_order='inside_out', skipConnect=False, grandPar=False, sibling=False):
+    def __init__(self, word_dim, num_words, char_dim, num_chars, pos_dim, num_pos, num_filters, kernel_size, rnn_mode, input_size_decoder, hidden_size, encoder_layers, decoder_layers, num_labels,
+                 arc_space, type_space, embedd_word=None, embedd_char=None, embedd_pos=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33), biaffine=True, pos=True, char=True, prior_order='inside_out',
+                 skipConnect=False, grandPar=False, sibling=False):
 
         super(StackPtrNet, self).__init__()
         self.word_embedd = Embedding(num_words, word_dim, init_embedding=embedd_word)
@@ -338,11 +336,11 @@ class StackPtrNet(nn.Module):
 
         self.hx_dense = nn.Linear(2 * hidden_size, hidden_size)
 
-        self.arc_h = nn.Linear(hidden_size, arc_space) # arc dense for decoder
+        self.arc_h = nn.Linear(hidden_size, arc_space)  # arc dense for decoder
         self.arc_c = nn.Linear(hidden_size * 2, arc_space)  # arc dense for encoder
         self.attention = BiAAttention(arc_space, arc_space, 1, biaffine=biaffine)
 
-        self.type_h = nn.Linear(hidden_size, type_space) # type dense for decoder
+        self.type_h = nn.Linear(hidden_size, type_space)  # type dense for decoder
         self.type_c = nn.Linear(hidden_size * 2, type_space)  # type dense for encoder
         self.bilinear = BiLinear(type_space, type_space, self.num_labels)
 
@@ -493,13 +491,15 @@ class StackPtrNet(nn.Module):
                 hn = torch.cat([hn, Variable(hn.data.new(self.decoder_layers - 1, batch, hidden_size).zero_())], dim=0)
         return hn
 
-    def loss(self, input_word, input_char, input_pos, heads, stacked_heads, children, siblings, stacked_types, label_smooth,
-             skip_connect=None, mask_e=None, length_e=None, mask_d=None, length_d=None, hx=None):
+    def loss(self, input_word, input_char, input_pos, heads, stacked_heads, children, siblings, stacked_types, label_smooth, skip_connect=None, mask_e=None, length_e=None, mask_d=None, length_d=None,
+             hx=None):
         # output from encoder [batch, length_encoder, hidden_size]
         output_enc, hn, mask_e, _ = self._get_encoder_output(input_word, input_char, input_pos, mask_e=mask_e, length_e=length_e, hx=hx)
 
-	print 'ENTRA LOSS stackedheads', stacked_heads
-	print 'CHILDREN', children
+        print
+        'ENTRA LOSS stackedheads', stacked_heads
+        print
+        'CHILDREN', children
 
         # output size [batch, length_encoder, arc_space]
         arc_c = F.elu(self.arc_c(output_enc))
@@ -521,9 +521,10 @@ class StackPtrNet(nn.Module):
 
         _, max_len_d, _ = arc_h.size()
 
-	#print 'MAXLENDDD', max_len_d
+        # print 'MAXLENDDD', max_len_d
         if mask_d is not None and children.size(1) != mask_d.size(1):
-	    print 'ENTRA______________'
+            print
+            'ENTRA______________'
             stacked_heads = stacked_heads[:, :max_len_d]
             children = children[:, :max_len_d]
             stacked_types = stacked_types[:, :max_len_d]
@@ -534,24 +535,27 @@ class StackPtrNet(nn.Module):
         arc_h = arc[:, :max_len_d]
         arc_c = arc[:, max_len_d:]
 
-	print 'ARCH', arc_h
-	print 'ARCCC', arc_c
+        print
+        'ARCH', arc_h
+        print
+        'ARCCC', arc_c
 
         type = self.dropout_out(torch.cat([type_h, type_c], dim=1).transpose(1, 2)).transpose(1, 2)
         type_h = type[:, :max_len_d].contiguous()
         type_c = type[:, max_len_d:]
 
         # [batch, length_decoder, length_encoder]
-        out_arc = self.attention(arc_h, arc_c, mask_d=mask_d, mask_e=mask_e).squeeze(dim=1) #El arco predicted se selecciona con attention
+        out_arc = self.attention(arc_h, arc_c, mask_d=mask_d, mask_e=mask_e).squeeze(dim=1)  # El arco predicted se selecciona con attention
 
         batch, max_len_e, _ = arc_c.size()
-	print 'MAXLENEEE', max_len_e
+        print
+        'MAXLENEEE', max_len_e
         # create batch index [batch]
         batch_index = torch.arange(0, batch).type_as(arc_c.data).long()
         # get vector for heads [batch, length_decoder, type_space],
         type_c = type_c[batch_index, children.data.t()].transpose(0, 1).contiguous()
         # compute output for type [batch, length_decoder, num_labels]
-        out_type = self.bilinear(type_h, type_c)#La label predictedse selecciona con un clasificador
+        out_type = self.bilinear(type_h, type_c)  # La label predictedse selecciona con un clasificador
 
         # mask invalid position to -inf for log_softmax
         if mask_e is not None:
@@ -569,24 +573,23 @@ class StackPtrNet(nn.Module):
         # [batch, length_decoder, length_encoder]
         coverage = torch.exp(loss_arc).cumsum(dim=1)
 
-	print 'LOSS ARC', loss_arc	
-
-
+        print
+        'LOSS ARC', loss_arc
 
         # get leaf and non-leaf mask
         # shape = [batch, length_decoder]
-        mask_leaf = torch.eq(children, stacked_heads).float()#SOBRA
-        mask_non_leaf = (1.0 - mask_leaf)#SOBRA
+        mask_leaf = torch.eq(children, stacked_heads).float()  # SOBRA
+        mask_non_leaf = (1.0 - mask_leaf)  # SOBRA
 
-	#print 'MASKS', mask_leaf, mask_non_leaf
+        # print 'MASKS', mask_leaf, mask_non_leaf
 
         # mask invalid position to 0 for sum loss
         if mask_e is not None:
             loss_arc = loss_arc * mask_d.unsqueeze(2) * mask_e.unsqueeze(1)
             coverage = coverage * mask_d.unsqueeze(2) * mask_e.unsqueeze(1)
             loss_type = loss_type * mask_d.unsqueeze(2)
-            mask_leaf = mask_leaf * mask_d#SOBRA
-            mask_non_leaf = mask_non_leaf * mask_d#SOBRA
+            mask_leaf = mask_leaf * mask_d  # SOBRA
+            mask_non_leaf = mask_non_leaf * mask_d  # SOBRA
 
             # number of valid positions which contribute to loss (remove the symbolic head for each sentence.
             num_leaf = mask_leaf.sum()
@@ -620,11 +623,10 @@ class StackPtrNet(nn.Module):
         loss_type_non_leaf = loss_type * mask_non_leaf
 
         loss_cov = (coverage - 2.0).clamp(min=0.)
-	
-	#exit(0)
-        return -loss_arc_leaf.sum() / num_leaf, -loss_arc_non_leaf.sum() / num_non_leaf, \
-               -loss_type_leaf.sum() / num_leaf, -loss_type_non_leaf.sum() / num_non_leaf, \
-               loss_cov.sum() / (num_leaf + num_non_leaf), num_leaf, num_non_leaf
+
+        # exit(0)
+        return -loss_arc_leaf.sum() / num_leaf, -loss_arc_non_leaf.sum() / num_non_leaf, -loss_type_leaf.sum() / num_leaf, -loss_type_non_leaf.sum() / num_non_leaf, loss_cov.sum() / (
+                    num_leaf + num_non_leaf), num_leaf, num_non_leaf
 
     def _decode_per_sentence(self, output_enc, arc_c, type_c, hx, length, beam, ordered, leading_symbolic):
         def valid_hyp(base_id, child_id, head):
@@ -912,16 +914,15 @@ class StackPtrNet(nn.Module):
 
         return heads, types, children, stack_types
 
+
 class NewStackPtrNet(nn.Module):
-    def __init__(self, word_dim, num_words, lemma_dim, num_lemmas, char_dim, num_chars, pos_dim, num_pos, num_filters, kernel_size,
-                 rnn_mode, input_size_decoder, hidden_size, encoder_layers, decoder_layers,
-                 num_labels, arc_space, type_space,
-                 embedd_word=None, embedd_char=None, embedd_pos=None,  embedd_lemma=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33),
-                 biaffine=True, pos=True, char=True, lemma=True, prior_order='inside_out', skipConnect=False, grandPar=False, sibling=False):
+    def __init__(self, word_dim, num_words, lemma_dim, num_lemmas, char_dim, num_chars, pos_dim, num_pos, num_filters, kernel_size, rnn_mode, input_size_decoder, hidden_size, encoder_layers,
+                 decoder_layers, num_labels, arc_space, type_space, embedd_word=None, embedd_char=None, embedd_pos=None, embedd_lemma=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33), biaffine=True,
+                 pos=True, char=True, lemma=True, prior_order='inside_out', skipConnect=False, grandPar=False, sibling=False):
 
         super(NewStackPtrNet, self).__init__()
         self.word_embedd = Embedding(num_words, word_dim, init_embedding=embedd_word)
-	self.lemma_embedd = Embedding(num_lemmas, lemma_dim, init_embedding=embedd_lemma) if lemma else None
+        self.lemma_embedd = Embedding(num_lemmas, lemma_dim, init_embedding=embedd_lemma) if lemma else None
         self.pos_embedd = Embedding(num_pos, pos_dim, init_embedding=embedd_pos) if pos else None
         self.char_embedd = Embedding(num_chars, char_dim, init_embedding=embedd_char) if char else None
         self.conv1d = nn.Conv1d(char_dim, num_filters, kernel_size, padding=kernel_size - 1) if char else None
@@ -934,10 +935,10 @@ class NewStackPtrNet(nn.Module):
             self.prior_order = PriorOrder.INSIDE_OUT
         elif prior_order == 'left2right':
             self.prior_order = PriorOrder.LEFT2RIGTH
-       
+
         self.pos = pos
         self.char = char
-	self.lemma = lemma
+        self.lemma = lemma
         self.skipConnect = skipConnect
         self.grandPar = grandPar
         self.sibling = sibling
@@ -962,7 +963,7 @@ class NewStackPtrNet(nn.Module):
             dim_enc += pos_dim
         if char:
             dim_enc += num_filters
-	if lemma:
+        if lemma:
             dim_enc += lemma_dim
         dim_dec = input_size_decoder
 
@@ -976,11 +977,11 @@ class NewStackPtrNet(nn.Module):
 
         self.hx_dense = nn.Linear(2 * hidden_size, hidden_size)
 
-        self.arc_h = nn.Linear(hidden_size, arc_space) # arc dense for decoder
+        self.arc_h = nn.Linear(hidden_size, arc_space)  # arc dense for decoder
         self.arc_c = nn.Linear(hidden_size * 2, arc_space)  # arc dense for encoder
         self.attention = BiAAttention(arc_space, arc_space, 1, biaffine=biaffine)
 
-        self.type_h = nn.Linear(hidden_size, type_space) # type dense for decoder
+        self.type_h = nn.Linear(hidden_size, type_space)  # type dense for decoder
         self.type_c = nn.Linear(hidden_size * 2, type_space)  # type dense for encoder
         self.bilinear = BiLinear(type_space, type_space, self.num_labels)
 
@@ -1016,8 +1017,7 @@ class NewStackPtrNet(nn.Module):
             pos = self.dropout_in(pos)
             src_encoding = torch.cat([src_encoding, pos], dim=2)
 
-
-	if self.lemma:
+        if self.lemma:
             lemma = self.lemma_embedd(input_lemma)
             lemma = self.dropout_in(lemma)
             src_encoding = torch.cat([src_encoding, lemma], dim=2)
@@ -1031,7 +1031,7 @@ class NewStackPtrNet(nn.Module):
 
         return output, hn, mask_e, length_e
 
-    #Basicamente lo que hace es codificar los nodos en la stack	
+    # Basicamente lo que hace es codificar los nodos en la stack
     def _get_decoder_output(self, output_enc, heads, heads_stack, siblings, previous, next, hx, mask_d=None, length_d=None):
         batch, _, _ = output_enc.size()
         # create batch index [batch]
@@ -1040,19 +1040,15 @@ class NewStackPtrNet(nn.Module):
         src_encoding = output_enc[batch_index, heads_stack.data.t()].transpose(0, 1)
 
         if self.sibling:
-	    mask_next = next.ne(0).float().unsqueeze(2)
-	    output_enc_next = output_enc[batch_index, next.data.t()].transpose(0, 1) * mask_next
-	    src_encoding = src_encoding + output_enc_next
+            mask_next = next.ne(0).float().unsqueeze(2)
+            output_enc_next = output_enc[batch_index, next.data.t()].transpose(0, 1) * mask_next
+            src_encoding = src_encoding + output_enc_next
 
-    
-            
         if self.grandPar:
             mask_previous = previous.ne(0).float().unsqueeze(2)
-	    output_enc_previous = output_enc[batch_index, previous.data.t()].transpose(0, 1) * mask_previous
-	    src_encoding = src_encoding + output_enc_previous
+            output_enc_previous = output_enc[batch_index, previous.data.t()].transpose(0, 1) * mask_previous
+            src_encoding = src_encoding + output_enc_previous
 
-   
-            
         # transform to decoder input
         # [batch, length_decoder, dec_dim]
         src_encoding = F.elu(self.src_dense(src_encoding))
@@ -1099,7 +1095,7 @@ class NewStackPtrNet(nn.Module):
 
         return output, hn, mask_d, length_d
 
-    def forward(self, input_word,  input_lemma, input_char, input_pos, mask=None, length=None, hx=None):
+    def forward(self, input_word, input_lemma, input_char, input_pos, mask=None, length=None, hx=None):
         raise RuntimeError('Stack Pointer Network does not implement forward')
 
     def _transform_decoder_init_state(self, hn):
@@ -1139,16 +1135,19 @@ class NewStackPtrNet(nn.Module):
                 hn = torch.cat([hn, Variable(hn.data.new(self.decoder_layers - 1, batch, hidden_size).zero_())], dim=0)
         return hn
 
-    def loss(self, input_word, input_lemma, input_char, input_pos, heads, stacked_heads, children, siblings, stacked_types, previous, next, label_smooth,
-             skip_connect=None, mask_e=None, length_e=None, mask_d=None, length_d=None, hx=None):
+    def loss(self, input_word, input_lemma, input_char, input_pos, heads, stacked_heads, children, siblings, stacked_types, previous, next, label_smooth, skip_connect=None, mask_e=None, length_e=None,
+             mask_d=None, length_d=None, hx=None):
         # output from encoder [batch, length_encoder, hidden_size]
         output_enc, hn, mask_e, _ = self._get_encoder_output(input_word, input_lemma, input_char, input_pos, mask_e=mask_e, length_e=length_e, hx=hx)
 
-	debug=False
+        debug = False
 
-	if debug: print 'ENTRA LOSS stackedheads', stacked_heads
-	if debug: print 'CHILDREN', children
-	if debug: print 'heads', heads
+        if debug: print
+        'ENTRA LOSS stackedheads', stacked_heads
+        if debug: print
+        'CHILDREN', children
+        if debug: print
+        'heads', heads
 
         # output size [batch, length_encoder, arc_space]
         arc_c = F.elu(self.arc_c(output_enc))
@@ -1162,7 +1161,7 @@ class NewStackPtrNet(nn.Module):
         if self.skipConnect:
             output_dec, _, mask_d, _ = self._get_decoder_output_with_skip_connect(output_enc, heads, stacked_heads, siblings, skip_connect, hn, mask_d=mask_d, length_d=length_d)
         else:
-	    #print 'SE USA ESTE'
+            # print 'SE USA ESTE'
             output_dec, _, mask_d, _ = self._get_decoder_output(output_enc, heads, stacked_heads, siblings, previous, next, hn, mask_d=mask_d, length_d=length_d)
 
         # output size [batch, length_decoder, arc_space]
@@ -1171,15 +1170,18 @@ class NewStackPtrNet(nn.Module):
 
         _, max_len_d, _ = arc_h.size()
 
-	if debug: 
-		print 'MAXLENDDD', max_len_d
-		print 'MASKD', mask_d 
+        if debug:
+            print
+            'MAXLENDDD', max_len_d
+            print
+            'MASKD', mask_d
 
         if mask_d is not None and children.size(1) != mask_d.size(1):
-	    if debug: print 'ENTRA______________'
+            if debug: print
+            'ENTRA______________'
             stacked_heads = stacked_heads[:, :max_len_d]
-	    children = children[:, :max_len_d]
-	    stacked_types = stacked_types[:, :max_len_d]
+            children = children[:, :max_len_d]
+            stacked_types = stacked_types[:, :max_len_d]
 
         # apply dropout
         # [batch, length_decoder, dim] + [batch, length_encoder, dim] --> [batch, length_decoder + length_encoder, dim]
@@ -1187,32 +1189,35 @@ class NewStackPtrNet(nn.Module):
         arc_h = arc[:, :max_len_d]
         arc_c = arc[:, max_len_d:]
 
-	if debug: 
-		print 'ARC', arc
-		print 'ARCH', arc_h
-		print 'ARCCC', arc_c
+        if debug:
+            print
+            'ARC', arc
+            print
+            'ARCH', arc_h
+            print
+            'ARCCC', arc_c
 
         type = self.dropout_out(torch.cat([type_h, type_c], dim=1).transpose(1, 2)).transpose(1, 2)
         type_h = type[:, :max_len_d].contiguous()
         type_c = type[:, max_len_d:]
 
         # [batch, length_decoder, length_encoder]
-	if debug:
-	 	print 'maske', mask_e	
-		print 'maskd', mask_d
-        out_arc = self.attention(arc_h, arc_c, mask_d=mask_d, mask_e=mask_e).squeeze(dim=1) #El arco predicted se selecciona con attention
-
-
+        if debug:
+            print
+            'maske', mask_e
+            print
+            'maskd', mask_d
+        out_arc = self.attention(arc_h, arc_c, mask_d=mask_d, mask_e=mask_e).squeeze(dim=1)  # El arco predicted se selecciona con attention
 
         batch, max_len_e, _ = arc_c.size()
         # create batch index [batch]
         batch_index = torch.arange(0, batch).type_as(arc_c.data).long()
 
-	# get vector for heads [batch, length_decoder, type_space],
-        type_c = type_c[batch_index, children.data.t()].transpose(0, 1).contiguous() 
+        # get vector for heads [batch, length_decoder, type_space],
+        type_c = type_c[batch_index, children.data.t()].transpose(0, 1).contiguous()
 
         # compute output for type [batch, length_decoder, num_labels]
-        out_type = self.bilinear(type_h, type_c)#La label predicted se selecciona con un clasificador
+        out_type = self.bilinear(type_h, type_c)  # La label predicted se selecciona con un clasificador
 
         # mask invalid position to -inf for log_softmax
         if mask_e is not None:
@@ -1230,15 +1235,14 @@ class NewStackPtrNet(nn.Module):
         # [batch, length_decoder, length_encoder]
         coverage = torch.exp(loss_arc).cumsum(dim=1)
 
-
         # mask invalid position to 0 for sum loss
         if mask_e is not None:
             loss_arc = loss_arc * mask_d.unsqueeze(2) * mask_e.unsqueeze(1)
             coverage = coverage * mask_d.unsqueeze(2) * mask_e.unsqueeze(1)
             loss_type = loss_type * mask_d.unsqueeze(2)
- 	    num = mask_d.sum()	
+            num = mask_d.sum()
         else:
- 	    num = max_len_e
+            num = max_len_e
 
         # first create index matrix [length, batch]
         head_index = torch.arange(0, max_len_d).view(max_len_d, 1).expand(max_len_d, batch)
@@ -1258,65 +1262,55 @@ class NewStackPtrNet(nn.Module):
             loss_arc = loss_arc[batch_index, head_index, children.data.t()].transpose(0, 1)
             loss_type = loss_type[batch_index, head_index, stacked_types.data.t()].transpose(0, 1)
 
-
-
         loss_cov = (coverage - 2.0).clamp(min=0.)
-	
-	if debug: exit(0)
 
-	return -loss_arc.sum() / num,\
-               -loss_type.sum() / num, \
-                loss_cov.sum() / num, num
+        if debug: exit(0)
 
+        return -loss_arc.sum() / num, -loss_type.sum() / num, loss_cov.sum() / num, num
 
     def _decode_per_sentence(self, output_enc, arc_c, type_c, hx, length, beam, ordered, leading_symbolic):
-  	"""
-	def valid_hyp(base_id, child_id):
-	    #Comprobar ciclos
-	    if constraints[base_id, child_id]:
-		return False #Ya tiene head asignado y no hace falta volver a procesarlo
-	    elif child_id == 0:
-		return False
-	    else:
-		return True
-  	"""
+        """
+      def valid_hyp(base_id, child_id):
+          #Comprobar ciclos
+          if constraints[base_id, child_id]:
+          return False #Ya tiene head asignado y no hace falta volver a procesarlo
+          elif child_id == 0:
+          return False
+          else:
+          return True
+        """
 
-	def alreadyExists(A, head, dep):
-		if (head,dep) in A: return True
-		return False
+        def alreadyExists(A, head, dep):
+            if (head, dep) in A: return True
+            return False
 
-        
+        def hasCycles(A, head, dep):
 
-	def hasCycles(A, head, dep):
+            # Comprobamos que head y dep no son lo mismo sino error
+            if head == dep: return True
 
-		#Comprobamos que head y dep no son lo mismo sino error
-		if head == dep: return True
+            aux = set(A)
+            aux.add((head, dep))
+            if count_cycles(aux) != 0:
+                return True
+            return False
 
-		aux = set(A)
-        	aux.add((head,dep))
-		if count_cycles(aux) != 0: 
-			return True
-		return False
-			
-	def count_cycles(A):
-        
-		d = {}
-		for a,b in A:
-		    if a not in d:
-		        d[a] = [b]
-		    else:
-		        d[a].append(b)
-                   
-	        return sum([1 for e in tarjan(d) if len(e) > 1])
+        def count_cycles(A):
 
+            d = {}
+            for a, b in A:
+                if a not in d:
+                    d[a] = [b]
+                else:
+                    d[a].append(b)
 
+            return sum([1 for e in tarjan(d) if len(e) > 1])
 
+        debug = False
+        if debug: print
+        'START PARSING SENTENCE ', length
 
-
-	debug = False
-	if debug:print 'START PARSING SENTENCE ', length
-
-	# output_enc [length, hidden_size * 2]
+        # output_enc [length, hidden_size * 2]
         # arc_c [length, arc_space]
         # type_c [length, type_space]
         # hx [decoder_layers, hidden_size]
@@ -1339,30 +1333,29 @@ class NewStackPtrNet(nn.Module):
             hx = hx.unsqueeze(1)
             h0 = hx
 
-        #stacked_heads = [[0] for _ in range(beam)]
-	stacked_heads = [[1] for _ in range(beam)]#Empezamos en 1 porque 0 no tiene head que asignar
-        #grand_parents = [[-1, -1 , -1] for _ in range(beam)] if self.grandPar else None#Aqui guardaremos la primera head asignada y empieza sin nada, a diferencia del StackPointer
-	#grand_parents = [[0, 0, 0] for _ in range(beam)] if self.grandPar else None#Los tenemos que asignar a 0 porque -1 da error
+        # stacked_heads = [[0] for _ in range(beam)]
+        stacked_heads = [[1] for _ in range(beam)]  # Empezamos en 1 porque 0 no tiene head que asignar
+        # grand_parents = [[-1, -1 , -1] for _ in range(beam)] if self.grandPar else None#Aqui guardaremos la primera head asignada y empieza sin nada, a diferencia del StackPointer
+        # grand_parents = [[0, 0, 0] for _ in range(beam)] if self.grandPar else None#Los tenemos que asignar a 0 porque -1 da error
         grand_parents = [[0] for _ in range(beam)] if self.grandPar else None
-        siblings = [[0] for _ in range(beam)] if self.sibling else None #
+        siblings = [[0] for _ in range(beam)] if self.sibling else None  #
         previous_heads = np.zeros([beam, length], dtype=np.int32)
-        
-	final_length=17*(length - 1)
-	max_num_heads=17
-	if length<17:
-		final_length=length*(length - 1)
-		max_num_heads=length
 
-	
-	children = torch.zeros(beam,final_length).type_as(output_enc.data).long()
+        final_length = 17 * (length - 1)
+        max_num_heads = 17
+        if length < 17:
+            final_length = length * (length - 1)
+            max_num_heads = length
+
+        children = torch.zeros(beam, final_length).type_as(output_enc.data).long()
         stacked_types = children.new(children.size()).zero_()
         hypothesis_scores = output_enc.data.new(beam).zero_()
-        
-	positions = [1 for _ in range(beam)]
-	num_heads = [0 for _ in range(beam)]
-	arcs = [set([]) for _ in range(beam)]
-	stop = [False for _ in range(beam)]
-	active = beam
+
+        positions = [1 for _ in range(beam)]
+        num_heads = [0 for _ in range(beam)]
+        arcs = [set([]) for _ in range(beam)]
+        stop = [False for _ in range(beam)]
+        active = beam
 
         # temporal tensors for each step.
         new_stacked_heads = [[] for _ in range(beam)]
@@ -1372,25 +1365,25 @@ class NewStackPtrNet(nn.Module):
         new_children = children.new(children.size()).zero_()
         new_stacked_types = stacked_types.new(stacked_types.size()).zero_()
         num_hyp = 1
-	num_step = final_length
-	
-	
-	new_arcs = [set([]) for _ in range(beam)]
-	new_positions = [1 for _ in range(beam)]
-	#new_num_steps = [0 for _ in range(beam)]
-	new_stop = [False for _ in range(beam)]
-	new_num_heads = [0 for _ in range(beam)]
+        num_step = final_length
+
+        new_arcs = [set([]) for _ in range(beam)]
+        new_positions = [1 for _ in range(beam)]
+        # new_num_steps = [0 for _ in range(beam)]
+        new_stop = [False for _ in range(beam)]
+        new_num_heads = [0 for _ in range(beam)]
         new_previous_heads = np.zeros([beam, length], dtype=np.int32)
 
-	stop_now=False
+        stop_now = False
 
-	for t in range(num_step):
-	    if stop_now: break
-	    if debug: print 'ESTAMOS EN EL T=', t, "====================================== ACTIVE:", active
+        for t in range(num_step):
+            if stop_now: break
+            if debug: print
+            'ESTAMOS EN EL T=', t, "====================================== ACTIVE:", active
             # [num_hyp]
             heads = torch.LongTensor([stacked_heads[i][-1] for i in range(num_hyp)]).type_as(children)
 
-	    gpars = torch.LongTensor([grand_parents[i][-1] for i in range(num_hyp)]).type_as(children) if self.grandPar  else None
+            gpars = torch.LongTensor([grand_parents[i][-1] for i in range(num_hyp)]).type_as(children) if self.grandPar else None
 
             # [decoder_layers, num_hyp, hidden_size]
             hs = torch.cat([skip_connects[i].pop() for i in range(num_hyp)], dim=1) if self.skipConnect else None
@@ -1398,13 +1391,10 @@ class NewStackPtrNet(nn.Module):
             # [num_hyp, hidden_size * 2]
             src_encoding = output_enc[heads]
 
-	
             if self.grandPar:
-	    	mask_gpar = Variable(gpars.ne(0).float().unsqueeze(1))
-		output_enc_gpar = output_enc[gpars] * mask_gpar
-		src_encoding = src_encoding + output_enc_gpar
-                
-
+                mask_gpar = Variable(gpars.ne(0).float().unsqueeze(1))
+                output_enc_gpar = output_enc[gpars] * mask_gpar
+                src_encoding = src_encoding + output_enc_gpar
 
             # transform to decoder input
             # [num_hyp, dec_dim]
@@ -1422,122 +1412,106 @@ class NewStackPtrNet(nn.Module):
             # [num_hyp, length_encoder]
             out_arc = self.attention(arc_h, arc_c.expand(num_hyp, *arc_c.size())).squeeze(dim=1).squeeze(dim=1)
 
- 	   
-	    # [num_hyp, length_encoder]
+            # [num_hyp, length_encoder]
             hyp_scores = F.log_softmax(out_arc, dim=1).data
 
             new_hypothesis_scores = hypothesis_scores[:num_hyp].unsqueeze(1) + hyp_scores
             # [num_hyp * length_encoder]
             new_hypothesis_scores, hyp_index = torch.sort(new_hypothesis_scores.view(-1), dim=0, descending=True)
 
+            base_index = hyp_index // length
+            child_index = hyp_index % length
 
-	    base_index = hyp_index / length
-            child_index = hyp_index % length 
-
-	    
             cc = 0
             ids = []
 
-	    if debug:
-	    	print 'num_hyp', num_hyp
+            if debug:
+                print
+                'num_hyp', num_hyp
 
-	    
-            #BEGIN BEAM
+            # BEGIN BEAM
             for id in range(num_hyp * length):
-		
-		
-		
+
                 base_id = base_index[id]
-		child_id = child_index[id]
-		head = heads[base_id]
-		new_hyp_score = new_hypothesis_scores[id]
-                
-		if stop[base_id] == True:
-			continue
-			
-			
-		else:
-			if child_id == head or num_heads[base_id]==max_num_heads-1:
-				new_positions[cc]=positions[base_id]
-				new_positions[cc]+=1
-				new_stop[cc]=stop[base_id]
-				if positions[base_id]+1 == length: 
-					new_stop[cc]=True #Terminamos el parsing #next_position=1
-					new_positions[cc]=1
-					
-				new_stacked_heads[cc] = [stacked_heads[base_id][i] for i in range(len(stacked_heads[base_id]))]
-				new_stacked_heads[cc].append(new_positions[cc])
+                child_id = child_index[id]
+                head = heads[base_id]
+                new_hyp_score = new_hypothesis_scores[id]
 
-			        new_previous_heads[cc] = np.zeros(length, dtype=np.int32)
-				if self.grandPar:
-                                        new_grand_parents[cc] = [0]
-                                        
-
-				new_children[cc] = children[base_id]
-				if num_heads[base_id]==max_num_heads-1: 
-					new_children[cc, t] = head 
-
-		         	else:    
-		            		new_children[cc, t] = child_id
+                if stop[base_id] == True:
+                    continue
 
 
+                else:
+                    if child_id == head or num_heads[base_id] == max_num_heads - 1:
+                        new_positions[cc] = positions[base_id]
+                        new_positions[cc] += 1
+                        new_stop[cc] = stop[base_id]
+                        if positions[base_id] + 1 == length:
+                            new_stop[cc] = True  # Terminamos el parsing #next_position=1
+                            new_positions[cc] = 1
 
-				
-		        	new_num_heads[cc]=0
+                        new_stacked_heads[cc] = [stacked_heads[base_id][i] for i in range(len(stacked_heads[base_id]))]
+                        new_stacked_heads[cc].append(new_positions[cc])
 
-		 	        hypothesis_scores[cc] = new_hyp_score
-				ids.append(id)
-				cc += 1
-			
-			else:	
-				if hasCycles(arcs[base_id], child_id, head): 
-					continue 
+                        new_previous_heads[cc] = np.zeros(length, dtype=np.int32)
+                        if self.grandPar:
+                            new_grand_parents[cc] = [0]
 
-				if alreadyExists(arcs[base_id], child_id, head): 
-					continue
+                        new_children[cc] = children[base_id]
+                        if num_heads[base_id] == max_num_heads - 1:
+                            new_children[cc, t] = head
 
-                                if previous_heads[base_id, head]>child_id:
-                                    continue
+                        else:
+                            new_children[cc, t] = child_id
 
-                                	
-		                        
-				new_arcs[cc] = set(arcs[base_id])
-				new_arcs[cc].add((child_id,head))
-				new_num_heads[cc]=num_heads[base_id]
-				new_num_heads[cc]+=1
+                        new_num_heads[cc] = 0
 
-                                new_previous_heads[cc] = previous_heads[base_id]
-                                new_previous_heads[cc,head] = child_id
-                                
-				new_positions[cc]=positions[base_id]
-				new_stacked_heads[cc] = [stacked_heads[base_id][i] for i in range(len(stacked_heads[base_id]))]
-				new_stacked_heads[cc].append(positions[base_id])
+                        hypothesis_scores[cc] = new_hyp_score
+                        ids.append(id)
+                        cc += 1
 
-				if self.grandPar:
-                                        
-					new_grand_parents[cc] = [grand_parents[base_id][i] for i in range(len(grand_parents[base_id]))]
-			                new_grand_parents[cc].append(child_id)
-				        
-				
+                    else:
+                        if hasCycles(arcs[base_id], child_id, head):
+                            continue
 
+                        if alreadyExists(arcs[base_id], child_id, head):
+                            continue
 
-				if self.skipConnect:
-				        new_skip_connects[cc] = [skip_connects[base_id][i] for i in range(len(skip_connects[base_id]))]
+                        if previous_heads[base_id, head] > child_id:
+                            continue
 
-				new_children[cc] = children[base_id]
-				new_children[cc, t] = child_id		
+                        new_arcs[cc] = set(arcs[base_id])
+                        new_arcs[cc].add((child_id, head))
+                        new_num_heads[cc] = num_heads[base_id]
+                        new_num_heads[cc] += 1
 
-				new_stop[cc]=stop[base_id]
+                        new_previous_heads[cc] = previous_heads[base_id]
+                        new_previous_heads[cc, head] = child_id
 
-		 	        hypothesis_scores[cc] = new_hyp_score
-				ids.append(id)
-				cc += 1
-		
+                        new_positions[cc] = positions[base_id]
+                        new_stacked_heads[cc] = [stacked_heads[base_id][i] for i in range(len(stacked_heads[base_id]))]
+                        new_stacked_heads[cc].append(positions[base_id])
+
+                        if self.grandPar:
+                            new_grand_parents[cc] = [grand_parents[base_id][i] for i in range(len(grand_parents[base_id]))]
+                            new_grand_parents[cc].append(child_id)
+
+                        if self.skipConnect:
+                            new_skip_connects[cc] = [skip_connects[base_id][i] for i in range(len(skip_connects[base_id]))]
+
+                        new_children[cc] = children[base_id]
+                        new_children[cc, t] = child_id
+
+                        new_stop[cc] = stop[base_id]
+
+                        hypothesis_scores[cc] = new_hyp_score
+                        ids.append(id)
+                        cc += 1
 
                 if cc == beam:
                     break
 
-	    #END BEAM	
+            # END BEAM
             # [num_hyp]
             num_hyp = len(ids)
             if num_hyp == 0:
@@ -1547,11 +1521,8 @@ class NewStackPtrNet(nn.Module):
             else:
                 index = torch.from_numpy(np.array(ids)).type_as(base_index)
 
-
-	    
             base_index = base_index[index]
             child_index = child_index[index]
-
 
             # predict types for new hypotheses
             # compute output for type [num_hyp, num_labels]
@@ -1564,26 +1535,24 @@ class NewStackPtrNet(nn.Module):
             for i in range(num_hyp):
                 base_id = base_index[i]
                 new_stacked_types[i] = stacked_types[base_id]
-		new_stacked_types[i, t] = hyp_types[i]
-	
+                new_stacked_types[i, t] = hyp_types[i]
+
             stacked_heads = [[new_stacked_heads[i][j] for j in range(len(new_stacked_heads[i]))] for i in range(num_hyp)]
-	    arcs = [set(new_arcs[i]) for i in range(num_hyp)]
-	    positions = [new_positions[i] for i in range(num_hyp)]
-	
- 
-	    if new_stop[0]: stop_now= True
+            arcs = [set(new_arcs[i]) for i in range(num_hyp)]
+            positions = [new_positions[i] for i in range(num_hyp)]
 
+            if new_stop[0]: stop_now = True
 
-	    stop = [new_stop[i] for i in range(num_hyp)]
-	    num_heads = [new_num_heads[i] for i in range(num_hyp)]
+            stop = [new_stop[i] for i in range(num_hyp)]
+            num_heads = [new_num_heads[i] for i in range(num_hyp)]
             if self.grandPar:
                 grand_parents = [[new_grand_parents[i][j] for j in range(len(new_grand_parents[i]))] for i in range(num_hyp)]
             if self.sibling:
                 siblings = [[new_siblings[i][j] for j in range(len(new_siblings[i]))] for i in range(num_hyp)]
             if self.skipConnect:
                 skip_connects = [[new_skip_connects[i][j] for j in range(len(new_skip_connects[i]))] for i in range(num_hyp)]
-            previous_heads=new_previous_heads
-	    children.copy_(new_children)
+            previous_heads = new_previous_heads
+            children.copy_(new_children)
             stacked_types.copy_(new_stacked_types)
             # hx [decoder_layers, num_hyp, hidden_size]
             # hack to handle LSTM
@@ -1595,53 +1564,44 @@ class NewStackPtrNet(nn.Module):
             else:
                 hx = hx[:, base_index, :]
 
-	   
-
-
         children = children.cpu().numpy()[0]
         stacked_types = stacked_types.cpu().numpy()[0]
 
-	
-
-	num_heads_allowed=17
-	if num_heads_allowed>length:num_heads_allowed=length
-	heads = np.zeros([length, num_heads_allowed], dtype=np.int32)
+        num_heads_allowed = 17
+        if num_heads_allowed > length: num_heads_allowed = length
+        heads = np.zeros([length, num_heads_allowed], dtype=np.int32)
         types = np.zeros([length, num_heads_allowed], dtype=np.int32)
 
-
-	
-
         stack = np.zeros(num_heads_allowed, dtype=np.int32)
-	stack_types = np.zeros(num_heads_allowed, dtype=np.int32)
-	position = 1
-	j=0
-	for i in range(len(children)):
-	     
-	    if position == length: break
+        stack_types = np.zeros(num_heads_allowed, dtype=np.int32)
+        position = 1
+        j = 0
+        for i in range(len(children)):
+
+            if position == length: break
             head = children[i]
 
-	    type = stacked_types[i]
-	    if position == head:
-		stack[j]=head
-	    	stack_types[j]=type	    	
-		heads[position] = stack
-            	types[position] = stack_types
-		stack = np.zeros(num_heads_allowed, dtype=np.int32)
-		stack_types = np.zeros(num_heads_allowed, dtype=np.int32)
-		position+=1
-		j=0
-		continue
-	    stack[j]=head
-	    stack_types[j]=type
-	    j+=1
-	    	
-	
+            type = stacked_types[i]
+            if position == head:
+                stack[j] = head
+                stack_types[j] = type
+                heads[position] = stack
+                types[position] = stack_types
+                stack = np.zeros(num_heads_allowed, dtype=np.int32)
+                stack_types = np.zeros(num_heads_allowed, dtype=np.int32)
+                position += 1
+                j = 0
+                continue
+            stack[j] = head
+            stack_types[j] = type
+            j += 1
+
         return heads, types, length, children, stacked_types
 
     def decode(self, input_word, input_lemma, input_char, input_pos, mask=None, length=None, hx=None, beam=1, leading_symbolic=0, ordered=True):
-        self.decoder.reset_noise(0) 
+        self.decoder.reset_noise(0)
 
-	debug=False
+        debug = False
 
         # output from encoder [batch, length_encoder, tag_space]
         # output_enc [batch, length, input_size]
@@ -1657,17 +1617,16 @@ class NewStackPtrNet(nn.Module):
         hn = self._transform_decoder_init_state(hn)
         batch, max_len_e, _ = output_enc.size()
 
-	if debug:print 'LENGTH', length, max_len_e
-	num_max_heads=17
-	if num_max_heads>max_len_e: num_max_heads=max_len_e
+        if debug: print
+        'LENGTH', length, max_len_e
+        num_max_heads = 17
+        if num_max_heads > max_len_e: num_max_heads = max_len_e
 
-
-	heads = np.zeros([batch, max_len_e, num_max_heads], dtype=np.int32)
+        heads = np.zeros([batch, max_len_e, num_max_heads], dtype=np.int32)
         types = np.zeros([batch, max_len_e, num_max_heads], dtype=np.int32)
 
-
-	children = np.zeros([batch, num_max_heads*(max_len_e - 1)], dtype=np.int32)
-        stack_types = np.zeros([batch, num_max_heads*(max_len_e - 1)], dtype=np.int32)
+        children = np.zeros([batch, num_max_heads * (max_len_e - 1)], dtype=np.int32)
+        stack_types = np.zeros([batch, num_max_heads * (max_len_e - 1)], dtype=np.int32)
 
         for b in range(batch):
             sent_len = None if length is None else length[b]
@@ -1685,15 +1644,12 @@ class NewStackPtrNet(nn.Module):
                 preds = self._decode_per_sentence(output_enc[b], arc_c[b], type_c[b], hx, sent_len, beam, False, leading_symbolic)
             hids, tids, sent_len, chids, stids = preds
 
+            for i in range(sent_len):
+                for j in range(len(hids[i])):
+                    heads[b, i, j] = hids[i, j]
+                    types[b, i, j] = tids[i, j]
 
-	    for i in range(sent_len):
-		for j in range(len(hids[i])):
-		    heads[b, i, j] = hids[i,j]
-            	    types[b, i, j] = tids[i,j]
-
-
-	    children[b, : len(chids)] = chids
+            children[b, : len(chids)] = chids
             stack_types[b, : len(stids)] = stids
-
 
         return heads, types, children, stack_types

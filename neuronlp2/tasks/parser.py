@@ -3,6 +3,7 @@ __author__ = 'max'
 import re
 import numpy as np
 
+
 def is_uni_punctuation(word):
     match = re.match("^[^\w\s]+$]", word, flags=re.UNICODE)
     return match is not None
@@ -15,11 +16,7 @@ def is_punctuation(word, pos, punct_set=None):
         return pos in punct_set
 
 
-def eval(words, postags, heads_pred, types_pred, heads, types, word_alphabet, pos_alphabet, lengths,
-         punct_set=None, symbolic_root=False, symbolic_end=False):
-
-
-
+def eval(words, postags, heads_pred, types_pred, heads, types, word_alphabet, pos_alphabet, lengths, punct_set=None, symbolic_root=False, symbolic_end=False):
     batch_size, _ = words.shape
     ucorr = 0.
     lcorr = 0.
@@ -81,22 +78,21 @@ def eval(words, postags, heads_pred, types_pred, heads, types, word_alphabet, po
         ucomplete_match_nopunc += ucm_nopunc
         lcomplete_match_nopunc += lcm_nopunc
 
-
-    return (ucorr, lcorr, total, ucomplete_match, lcomplete_match), \
-           (ucorr_nopunc, lcorr_nopunc, total_nopunc, ucomplete_match_nopunc, lcomplete_match_nopunc), \
-           (corr_root, total_root), batch_size
+    return (ucorr, lcorr, total, ucomplete_match, lcomplete_match), (ucorr_nopunc, lcorr_nopunc, total_nopunc, ucomplete_match_nopunc, lcomplete_match_nopunc), (corr_root, total_root), batch_size
 
 
-
-def evalF1(words, lemmas, postags, heads_pred, types_pred, heads, types, word_alphabet, lemma_alphabet, pos_alphabet, lengths,
-         punct_set=None, symbolic_root=False, symbolic_end=False):
-
-    debug=False
-    if debug: print '=================================================='
-    if debug: print 'HEADS_GOLD', heads
-    if debug: print 'HEADS PREDS', heads_pred
-    if debug: print 'TYPES_GOLD', types
-    if debug: print 'TYPES PREDS', types_pred
+def evalF1(words, lemmas, postags, heads_pred, types_pred, heads, types, word_alphabet, lemma_alphabet, pos_alphabet, lengths, punct_set=None, symbolic_root=False, symbolic_end=False):
+    debug = False
+    if debug: print
+    '=================================================='
+    if debug: print
+    'HEADS_GOLD', heads
+    if debug: print
+    'HEADS PREDS', heads_pred
+    if debug: print
+    'TYPES_GOLD', types
+    if debug: print
+    'TYPES PREDS', types_pred
 
     batch_size, _ = words.shape
     ucorr = 0.
@@ -104,8 +100,8 @@ def evalF1(words, lemmas, postags, heads_pred, types_pred, heads, types, word_al
     total_gold = 0.
     total_pred = 0.
 
-    #corr_root = 0.
-    #total_root = 0.
+    # corr_root = 0.
+    # total_root = 0.
     start = 1 if symbolic_root else 0
     end = 1 if symbolic_end else 0
     for i in range(batch_size):
@@ -116,72 +112,65 @@ def evalF1(words, lemmas, postags, heads_pred, types_pred, heads, types, word_al
             pos = pos_alphabet.get_instance(postags[i, j])
             pos = pos.encode('utf8')
 
+            if debug: print(j, heads[i, j], heads_pred[i, j])
 
-	    if debug: print j, heads[i, j], heads_pred[i,j]
-	    
-            true_head=heads[i, j,:lengths[i]]
-	    true_head2=[]
-			
-	    for y, x in enumerate(true_head):
-		if y == len(true_head)-1 and true_head[y]==0:
-			true_head2.append(-1)
-			break
-		if x == j: continue
-		if x==0 and true_head[y+1]==0: #Si es 0 y esta seguido por un numero distinto de 0, entonces es un enlace a root real
-			true_head2.append(-1)
-		else:
-			true_head2.append(x)
+            true_head = heads[i, j, :lengths[i]]
+            true_head2 = []
 
-	    true_head_pred=heads_pred[i, j,:lengths[i]]
-	    #true_head_pred=heads[i, j,:lengths[i]]
-	    true_head_pred2=[]
-			
-	    for y, x in enumerate(true_head_pred):
-		if y == len(true_head_pred)-1 and true_head_pred[y]==0:
-			true_head_pred2.append(-1)
-			break
-		if x == j: continue
-		if x==0 and true_head_pred[y+1]==0: #Si es 0 y esta seguido por un numero distinto de 0, entonces es un enlace a root real
-			true_head_pred2.append(-1)
-		else:
-			true_head_pred2.append(x)
+            for y, x in enumerate(true_head):
+                if y == len(true_head) - 1 and true_head[y] == 0:
+                    true_head2.append(-1)
+                    break
+                if x == j: continue
+                if x == 0 and true_head[y + 1] == 0:  # Si es 0 y esta seguido por un numero distinto de 0, entonces es un enlace a root real
+                    true_head2.append(-1)
+                else:
+                    true_head2.append(x)
 
+            true_head_pred = heads_pred[i, j, :lengths[i]]
+            # true_head_pred=heads[i, j,:lengths[i]]
+            true_head_pred2 = []
 
+            for y, x in enumerate(true_head_pred):
+                if y == len(true_head_pred) - 1 and true_head_pred[y] == 0:
+                    true_head_pred2.append(-1)
+                    break
+                if x == j: continue
+                if x == 0 and true_head_pred[y + 1] == 0:  # Si es 0 y esta seguido por un numero distinto de 0, entonces es un enlace a root real
+                    true_head_pred2.append(-1)
+                else:
+                    true_head_pred2.append(x)
 
+            if debug: print(j, true_head2, true_head_pred2)
 
-	    if debug: print j, true_head2, true_head_pred2
+            for x, y in enumerate(true_head_pred2):
+                if y != -1:
+                    total_pred += 1
 
-	    for x,y in enumerate(true_head_pred2):
-		if y!=-1:
-			total_pred+=1	
-	    
-	    for x,y in enumerate(true_head2):
-		if y!=-1:
-			total_gold+=1
-			if y in true_head_pred2:
-				ucorr += 1
-				if debug:  print x, 'TYPES', types[i, j], types_pred[i, j]
-				if types[i, j, x] == types_pred[i, j, x] or y==0:#Si es enlace a ROOT consideramos que la label es correcta porque no la tiene
-				#if types[i, j, x] == types[i, j, x]:
-					lcorr += 1
-		
-           
-            #if heads[i, j] == 0:
-            #    total_root += 1
-            #    corr_root += 1 if heads_pred[i, j] == 0 else 0
-	
-    #Si no asigna ningun head a los nodos, entonces total_pred es igual a 0
-    if total_pred==0:
-	lprecision=0.
-	uprecision=0.
-    else:		 
-	    lprecision=lcorr/total_pred
-	    uprecision=ucorr/total_pred	   
-    lrecall=lcorr/total_gold
-    urecall=ucorr/total_gold
+            for x, y in enumerate(true_head2):
+                if y != -1:
+                    total_gold += 1
+                    if y in true_head_pred2:
+                        ucorr += 1
+                        if debug:  print(x, 'TYPES', types[i, j], types_pred[i, j])
+                        if types[i, j, x] == types_pred[i, j, x] or y == 0:  # Si es enlace a ROOT consideramos que la label es correcta porque no la tiene
+                            # if types[i, j, x] == types[i, j, x]:
+                            lcorr += 1
 
-    if debug: print ucorr, lcorr, total_pred, total_gold, lprecision,uprecision,lrecall,urecall 
-    #if debug: exit(0)
+            # if heads[i, j] == 0:  #    total_root += 1  #    corr_root += 1 if heads_pred[i, j] == 0 else 0
+
+    # Si no asigna ningun head a los nodos, entonces total_pred es igual a 0
+    if total_pred == 0:
+        lprecision = 0.
+        uprecision = 0.
+    else:
+        lprecision = lcorr / total_pred
+        uprecision = ucorr / total_pred
+    lrecall = lcorr / total_gold
+    urecall = ucorr / total_gold
+
+    if debug: print(ucorr, lcorr, total_pred, total_gold, lprecision, uprecision, lrecall, urecall)
+    # if debug: exit(0)
 
     return ucorr, lcorr, total_gold, total_pred, batch_size
 

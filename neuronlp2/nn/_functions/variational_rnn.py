@@ -1,7 +1,8 @@
 __author__ = 'max'
 
 import torch
-from torch.nn._functions.thnn import rnnFusedPointwise as fusedBackend
+#from torch.nn._functions.thnn import rnnFusedPointwise as fusedBackend
+
 from torch.nn import functional as F
 
 
@@ -48,11 +49,11 @@ def VarFastLSTMCell(input, hidden, w_ih, w_hh, b_ih=None, b_hh=None, noise_in=No
     if noise_in is not None:
         input = input * noise_in
 
-    if input.is_cuda:
-        igates = F.linear(input, w_ih)
-        hgates = F.linear(hidden[0], w_hh) if noise_hidden is None else F.linear(hidden[0] * noise_hidden, w_hh)
-        state = fusedBackend.LSTMFused.apply
-        return state(igates, hgates, hidden[1]) if b_ih is None else state(igates, hgates, hidden[1], b_ih, b_hh)
+    # if input.is_cuda:
+    #     igates = F.linear(input, w_ih)
+    #     hgates = F.linear(hidden[0], w_hh) if noise_hidden is None else F.linear(hidden[0] * noise_hidden, w_hh)
+    #     state = fusedBackend.LSTMFused.apply
+    #     return state(igates, hgates, hidden[1]) if b_ih is None else state(igates, hgates, hidden[1], b_ih, b_hh)
 
     hx, cx = hidden
     if noise_hidden is not None:
