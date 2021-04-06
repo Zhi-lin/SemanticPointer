@@ -17,7 +17,7 @@ import json
 from tqdm import tqdm
 import numpy as np
 import torch
-from torch.nn.utils import clip_grad_norm
+from torch.nn.utils import clip_grad_norm_
 from torch.optim import Adam, SGD, Adamax
 from neuronlp2.io import get_logger, conllx_stacked_data
 from neuronlp2.models import NewStackPtrNet
@@ -375,7 +375,7 @@ def main():
 
             loss = loss_arc + loss_type + cov * loss_cov
             loss.backward()
-            clip_grad_norm(network.parameters(), clip)
+            clip_grad_norm_(network.parameters(), clip)
             optim.step()
 
             train_err_arc += loss_arc.data.item() * num

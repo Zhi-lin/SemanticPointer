@@ -168,7 +168,7 @@ class ConcatAttention(nn.Module):
         out_e = torch.matmul(input_e, self.W_e).unsqueeze(2)
 
         # add them together [batch, length_encoder, length_decoder, hidden_size]
-        out = F.tanh(out_d + out_e + self.b)
+        out = torch.tanh(out_d + out_e + self.b)
 
         # product with v
         # [batch, length_encoder, length_decoder, hidden_size] * [hidden, num_label]

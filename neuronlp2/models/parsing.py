@@ -472,7 +472,7 @@ class StackPtrNet(nn.Module):
             if self.decoder_layers > 1:
                 cn = torch.cat([cn, Variable(cn.data.new(self.decoder_layers - 1, batch, hidden_size).zero_())], dim=0)
             # hn is tanh(cn)
-            hn = F.tanh(cn)
+            hn = torch.tanh(cn)
             hn = (hn, cn)
         else:
             # take the last layers
@@ -485,7 +485,7 @@ class StackPtrNet(nn.Module):
             # then view to [batch, 1, 2 * hidden_size] --> [1, batch, 2 * hidden_size]
             hn = hn.view(batch, 1, 2 * hidden_size).transpose(0, 1)
             # take hx_dense to [1, batch, hidden_size]
-            hn = F.tanh(self.hx_dense(hn))
+            hn = torch.tanh(self.hx_dense(hn))
             # [decoder_layers, batch, hidden_size]
             if self.decoder_layers > 1:
                 hn = torch.cat([hn, Variable(hn.data.new(self.decoder_layers - 1, batch, hidden_size).zero_())], dim=0)
@@ -1116,7 +1116,7 @@ class NewStackPtrNet(nn.Module):
             if self.decoder_layers > 1:
                 cn = torch.cat([cn, Variable(cn.data.new(self.decoder_layers - 1, batch, hidden_size).zero_())], dim=0)
             # hn is tanh(cn)
-            hn = F.tanh(cn)
+            hn = torch.tanh(cn)
             hn = (hn, cn)
         else:
             # take the last layers
@@ -1129,7 +1129,7 @@ class NewStackPtrNet(nn.Module):
             # then view to [batch, 1, 2 * hidden_size] --> [1, batch, 2 * hidden_size]
             hn = hn.view(batch, 1, 2 * hidden_size).transpose(0, 1)
             # take hx_dense to [1, batch, hidden_size]
-            hn = F.tanh(self.hx_dense(hn))
+            hn = torch.tanh(self.hx_dense(hn))
             # [decoder_layers, batch, hidden_size]
             if self.decoder_layers > 1:
                 hn = torch.cat([hn, Variable(hn.data.new(self.decoder_layers - 1, batch, hidden_size).zero_())], dim=0)

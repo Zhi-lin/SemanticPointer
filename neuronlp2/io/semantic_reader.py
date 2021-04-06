@@ -5,7 +5,13 @@ from .instance import Sentence
 from .conllx_data import ROOT, ROOT_POS, ROOT_CHAR, ROOT_TYPE, END, END_POS, END_CHAR, END_TYPE, PAD_ID_TAG, PAD_TYPE
 from . import utils
 
+
 class CoNLLXReader(object):
+	"""
+	读取数据，进行封装。
+
+	"""
+
 	def __init__(self, file_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, lemma_alphabet):
 		self.__source_file = open(file_path, 'r')
 		self.__word_alphabet = word_alphabet

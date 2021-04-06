@@ -141,18 +141,22 @@ def _generate_stack_inputs(heads, types, prior_order):
 
 
 def read_stacked_data(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, lemma_alphabet, max_size=None, normalize_digits=True, prior_order='deep_first'):
+    """
+    每个桶里面装了很多的数据！
+
+    """
     data = [[] for _ in _buckets]
-    max_char_length = [0 for _ in _buckets]
+    max_char_length = [0 for _ in _buckets] #buckets 的最大的char长度
     print('Reading data from %s' % source_path)
     counter = 0
-    reader = CoNLLXReader(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, lemma_alphabet)
+    reader = CoNLLXReader(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, lemma_alphabet) # 读取数据类
     inst = reader.getNext(normalize_digits=normalize_digits, symbolic_root=True, symbolic_end=False)
     while inst is not None and (not max_size or counter < max_size):
         counter += 1
         if counter % 10000 == 0:
             print("reading data: %d" % counter)
 
-        inst_size = inst.length()
+        inst_size = inst.length()  # word size including root
         sent = inst.sentence
         for bucket_id, bucket_size in enumerate(_buckets):
             if inst_size < bucket_size:
@@ -172,8 +176,10 @@ def read_stacked_data(source_path, word_alphabet, char_alphabet, pos_alphabet, t
 
 def read_stacked_data_to_variable(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, lemma_alphabet, max_size=None, normalize_digits=True, prior_order='deep_first', use_gpu=False,
                                   volatile=False):
+    # data[[],[]]
     data, max_char_length = read_stacked_data(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, lemma_alphabet, max_size=max_size, normalize_digits=normalize_digits,
                                               prior_order=prior_order)
+    # bucket_sizes 每个桶装的数据的数量
     bucket_sizes = [len(data[b]) for b in range(len(_buckets))]
 
     data_variable = []
