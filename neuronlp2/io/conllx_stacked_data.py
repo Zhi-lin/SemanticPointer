@@ -162,7 +162,8 @@ def read_stacked_data(source_path, word_alphabet, char_alphabet, pos_alphabet, t
             if inst_size < bucket_size:
                 stacked_heads, children, siblings, stacked_types, skip_connect, previous, next = _generate_stack_inputs(inst.heads, inst.type_ids, prior_order)
                 data[bucket_id].append(
-                    [sent.word_ids, sent.lemma_ids, sent.char_id_seqs, inst.pos_ids, inst.heads, inst.type_ids, stacked_heads, children, siblings, stacked_types, skip_connect, previous, next])
+                    [sent.words, sent.word_ids, sent.lemma_ids, sent.char_id_seqs, inst.pos_ids, inst.heads, inst.type_ids, stacked_heads, children, siblings, stacked_types, skip_connect, previous,
+                     next])  # Jeffrey: add tokens
                 max_len = max([len(char_seq) for char_seq in sent.char_seqs])
                 if max_char_length[bucket_id] < max_len:
                     max_char_length[bucket_id] = max_len
@@ -176,6 +177,9 @@ def read_stacked_data(source_path, word_alphabet, char_alphabet, pos_alphabet, t
 
 def read_stacked_data_to_variable(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, lemma_alphabet, max_size=None, normalize_digits=True, prior_order='deep_first', use_gpu=False,
                                   volatile=False):
+    """
+    返回预处理完成的数据。
+    """
     # data[[],[]]
     data, max_char_length = read_stacked_data(source_path, word_alphabet, char_alphabet, pos_alphabet, type_alphabet, lemma_alphabet, max_size=max_size, normalize_digits=normalize_digits,
                                               prior_order=prior_order)
@@ -190,7 +194,7 @@ def read_stacked_data_to_variable(source_path, word_alphabet, char_alphabet, pos
             data_variable.append((1, 1))
             continue
 
-        bucket_length = _buckets[bucket_id]
+        bucket_length = _buckets[bucket_id]  # 桶的短板
         char_length = min(utils.MAX_CHAR_LENGTH, max_char_length[bucket_id] + utils.NUM_CHAR_PAD)
         wid_inputs = np.empty([bucket_size, bucket_length], dtype=np.int64)
         lid_inputs = np.empty([bucket_size, bucket_length], dtype=np.int64)  # lemma
@@ -199,17 +203,17 @@ def read_stacked_data_to_variable(source_path, word_alphabet, char_alphabet, pos
 
         # Modificamos para ampliar una tercera dimension los heads y types
         # hid_inputs = np.empty([bucket_size, bucket_length], dtype=np.int64)
-        hid_inputs = np.empty([bucket_size, bucket_length, 17], dtype=np.int64)
+        hid_inputs = np.empty([bucket_size, bucket_length, 17], dtype=np.int64)  # 默认假设最多17个头
         # tid_inputs = np.empty([bucket_size, bucket_length], dtype=np.int64)
         tid_inputs = np.empty([bucket_size, bucket_length, 17], dtype=np.int64)
 
         # MASK AND LENGTH ENCODING
         masks_e = np.zeros([bucket_size, bucket_length], dtype=np.float32)
-        single = np.zeros([bucket_size, bucket_length], dtype=np.int64)
-        lemma_single = np.zeros([bucket_size, bucket_length], dtype=np.int64)
-        lengths_e = np.empty(bucket_size, dtype=np.int64)
+        single = np.zeros([bucket_size, bucket_length], dtype=np.int64)  # 对应的token是否是single
+        lemma_single = np.zeros([bucket_size, bucket_length], dtype=np.int64) # 对应的lemma是否是single
+        lengths_e = np.empty(bucket_size, dtype=np.int64)  # encode的每句话的长度
 
-        final_length = 17 * (bucket_length - 1)
+        final_length = 17 * (bucket_length - 1) # Jeffrey: 这种方法会导致序列长度过长
         if bucket_length < 17: final_length = bucket_length * (bucket_length - 1)
 
         debug = False
@@ -227,10 +231,10 @@ def read_stacked_data_to_variable(source_path, word_alphabet, char_alphabet, pos
         # MASK AND LENGTH DECODING
         masks_d = np.zeros([bucket_size, final_length], dtype=np.float32)
 
-        lengths_d = np.empty(bucket_size, dtype=np.int64)
+        lengths_d = np.empty(bucket_size, dtype=np.int64) #Jeffrey: 需要decode的step数
 
         for i, inst in enumerate(data[bucket_id]):
-            wids, lids, cid_seqs, pids, hids, tids, stack_hids, chids, ssids, stack_tids, skip_ids, previous_ids, next_ids = inst
+            tokens, wids, lids, cid_seqs, pids, hids, tids, stack_hids, chids, ssids, stack_tids, skip_ids, previous_ids, next_ids = inst
             inst_size = len(wids)
             lengths_e[i] = inst_size
 
@@ -356,9 +360,11 @@ def read_stacked_data_to_variable(source_path, word_alphabet, char_alphabet, pos
             lengths_d = lengths_d.cuda()
             previous = previous.cuda()
             next = next.cuda()
-
+        #tokens = np.array(tokens, dtype=object)
+        # Jeffrey: 加入了tokens.
         data_variable.append(
-            ((words, lemmas, chars, pos, heads, types, masks_e, single, lemma_single, lengths_e), (stacked_heads, children, siblings, stacked_types, skip_connect, previous, next, masks_d, lengths_d)))
+            ((tokens,words, lemmas, chars, pos, heads, types, masks_e, single, lemma_single, lengths_e), (stacked_heads, children, siblings, stacked_types, skip_connect, previous, next, masks_d,
+                                                                                                    lengths_d)))
 
     # exit(0)
     return data_variable, bucket_sizes
@@ -379,7 +385,7 @@ def get_batch_stacked_variable(data, batch_size, unk_replace=0.):
     bucket_length = _buckets[bucket_id]
 
     data_encoder, data_decoder = data_variable[bucket_id]
-    words, lemmas, chars, pos, heads, types, masks_e, single, lemma_single, lengths_e = data_encoder
+    tokens, words, lemmas, chars, pos, heads, types, masks_e, single, lemma_single, lengths_e = data_encoder
     stacked_heads, children, siblings, stacked_types, skip_connect, previous, next, masks_d, lengths_d = data_decoder
     bucket_size = bucket_sizes[bucket_id]
     batch_size = min(bucket_size, batch_size)
@@ -388,6 +394,7 @@ def get_batch_stacked_variable(data, batch_size, unk_replace=0.):
         index = index.cuda()
 
     words = words[index]
+    tokens = tokens[torch.Tensor.cpu(index)]
     if unk_replace:
         ones = Variable(single.data.new(batch_size, bucket_length).fill_(1))
         noise = Variable(masks_e.data.new(batch_size, bucket_length).bernoulli_(unk_replace).long())
@@ -398,9 +405,13 @@ def get_batch_stacked_variable(data, batch_size, unk_replace=0.):
         ones = Variable(lemma_single.data.new(batch_size, bucket_length).fill_(1))
         noise = Variable(masks_e.data.new(batch_size, bucket_length).bernoulli_(unk_replace).long())
         lemmas = lemmas * (ones - lemma_single[index] * noise)
-
-    return (words, lemmas, chars[index], pos[index], heads[index], types[index], masks_e[index], lengths_e[index]), (
-    stacked_heads[index], children[index], siblings[index], stacked_types[index], skip_connect[index], previous[index], next[index], masks_d[index], lengths_d[index])
+    # Jeffrey:
+    temp_length = lengths_e[index]
+    batch_length = temp_length.max().item()
+    return (tokens, words[:,:batch_length], lemmas[:,:batch_length], chars[index,:batch_length,:], pos[index,:batch_length],
+            heads[index,:batch_length,:], types[index,:batch_length,:], masks_e[index,:batch_length],
+            lengths_e[index]), \
+           (stacked_heads[index], children[index], siblings[index], stacked_types[index], skip_connect[index], previous[index], next[index], masks_d[index], lengths_d[index])
 
 
 def iterate_batch_stacked_variable(data, batch_size, unk_replace=0., shuffle=False):
@@ -416,7 +427,7 @@ def iterate_batch_stacked_variable(data, batch_size, unk_replace=0., shuffle=Fal
         if bucket_size == 0:
             continue
         data_encoder, data_decoder = data_variable[bucket_id]
-        words, lemmas, chars, pos, heads, types, masks_e, single, lemma_single, lengths_e = data_encoder
+        tokens, words, lemmas, chars, pos, heads, types, masks_e, single, lemma_single, lengths_e = data_encoder
         stacked_heads, children, siblings, stacked_types, skip_connect, previous, next, masks_d, lengths_d = data_decoder
         if unk_replace:
             ones = Variable(single.data.new(bucket_size, bucket_length).fill_(1))
@@ -438,5 +449,9 @@ def iterate_batch_stacked_variable(data, batch_size, unk_replace=0., shuffle=Fal
                 excerpt = indices[start_idx:start_idx + batch_size]
             else:
                 excerpt = slice(start_idx, start_idx + batch_size)
-            yield (words[excerpt], lemmas[excerpt], chars[excerpt], pos[excerpt], heads[excerpt], types[excerpt], masks_e[excerpt], lengths_e[excerpt]), (
-            stacked_heads[excerpt], children[excerpt], siblings[excerpt], stacked_types[excerpt], skip_connect[excerpt], previous[excerpt], next[excerpt], masks_d[excerpt], lengths_d[excerpt])
+            temp_length = lengths_e[excerpt]
+            batch_length = temp_length.max().item()
+            yield (tokens[excerpt], words[excerpt,:batch_length], lemmas[excerpt,:batch_length], chars[excerpt,:batch_length,:], pos[excerpt,:batch_length],
+                   heads[excerpt,:batch_length,:], types[excerpt,:batch_length,:], masks_e[excerpt,:batch_length],
+                   lengths_e[excerpt]),\
+                  (stacked_heads[excerpt], children[excerpt], siblings[excerpt], stacked_types[excerpt], skip_connect[excerpt], previous[excerpt], next[excerpt], masks_d[excerpt], lengths_d[excerpt])

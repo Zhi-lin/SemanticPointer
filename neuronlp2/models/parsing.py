@@ -1,18 +1,63 @@
 __author__ = 'max'
 
 import copy
+import os
+import json
 import numpy as np
 from enum import Enum
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from transformers import AutoTokenizer, AutoModel
+
 from ..nn import TreeCRF, VarMaskedGRU, VarMaskedRNN, VarMaskedLSTM, VarMaskedFastLSTM
 from ..nn import SkipConnectFastLSTM, SkipConnectGRU, SkipConnectLSTM, SkipConnectRNN
 from ..nn import Embedding
 from ..nn import BiAAttention, BiLinear
 from neuronlp2.tasks import parser
 from tarjan import tarjan
+from neuronlp2.io import get_logger
+
+
+class PositionEmbeddingLayer(nn.Module):
+    def __init__(self, embedding_size, dropout_prob=0, max_position_embeddings=256):
+        super(PositionEmbeddingLayer, self).__init__()
+        """Adding position embeddings to input layer
+        """
+        self.position_embeddings = nn.Embedding(max_position_embeddings, embedding_size)
+        self.dropout = nn.Dropout(dropout_prob)
+
+    def forward(self, input_tensor, debug=False):
+        """
+        input_tensor: (batch, seq_len, input_size)
+        """
+        seq_length = input_tensor.size(1)
+        batch_size = input_tensor.size(0)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_tensor.device)
+        position_ids = position_ids.unsqueeze(0).expand(batch_size,-1)
+        position_embeddings = self.position_embeddings(position_ids)
+        embeddings = input_tensor + position_embeddings
+        embeddings = self.dropout(embeddings)
+        if debug:
+            print ("input_tensor:",input_tensor)
+            print ("position_embeddings:",position_embeddings)
+            print ("embeddings:",embeddings)
+        return embeddings
+
+
+def load_elmo(path):
+    from allennlp.modules.elmo import Elmo, batch_to_ids
+    options_file = os.path.join(path, "options.json")
+    weight_file = os.path.join(path, "weights.hdf5")
+    if not os.path.exists(options_file):
+        print ("Did not find options.json in {}".format(path))
+    if not os.path.exists(weight_file):
+        print ("Did not find weights.hdf5 in {}".format(path))
+    elmo = Elmo(options_file, weight_file, 1, dropout=0)
+    conf = json.loads(open(options_file, 'r').read())
+    output_size = conf['lstm']['projection_dim'] * 2
+    return elmo, output_size
 
 
 class PriorOrder(Enum):
@@ -917,10 +962,30 @@ class StackPtrNet(nn.Module):
 
 class NewStackPtrNet(nn.Module):
     def __init__(self, word_dim, num_words, lemma_dim, num_lemmas, char_dim, num_chars, pos_dim, num_pos, num_filters, kernel_size, rnn_mode, input_size_decoder, hidden_size, encoder_layers,
-                 decoder_layers, num_labels, arc_space, type_space, embedd_word=None, embedd_char=None, embedd_pos=None, embedd_lemma=None, p_in=0.33, p_out=0.33, p_rnn=(0.33, 0.33), biaffine=True,
-                 pos=True, char=True, lemma=True, prior_order='inside_out', skipConnect=False, grandPar=False, sibling=False):
+                 decoder_layers, num_labels, arc_space, type_space, pretrained_lm='none', lm_path=None,
+                 embedd_word=None, embedd_char=None, embedd_pos=None, embedd_lemma=None, p_in=0.33, p_out=0.33,
+                 p_rnn=(0.33, 0.33), biaffine=True,pos=True, char=True, lemma=True, prior_order='inside_out', skipConnect=False, grandPar=False, sibling=False):
 
         super(NewStackPtrNet, self).__init__()
+        self.pretrained_lm = pretrained_lm
+        logger=get_logger('Network')
+        # Jeffrey: 增加预训练语言模型的嵌入表示
+        if not self.pretrained_lm in['none','elmo']:
+            tokenizer = AutoTokenizer.from_pretrained(lm_path)
+            self.lm_encoder = AutoModel.from_pretrained(lm_path)
+            logger.info("Pretrained Language Model Type: %s" % (self.lm_encoder.config.model_type))
+            logger.info("Pretrained Language Model Path: %s" % (lm_path))
+            lm_hidden_size = self.lm_encoder.config.hidden_size
+            self.word_embed = None
+        elif self.pretrained_lm =='elmo':
+            self.lm_encoder, lm_hidden_size = load_elmo(lm_path)
+            self.word_embed = None
+            logger.info("Pretrained Language Model Type: ELMo")
+            logger.info("Pretrained Language Model Path: %s" % (lm_path))
+        else:
+            self.basic_word_embed = None
+            self.word_embed = nn.Embedding(num_words, word_dim, _weight=embedd_word, padding_idx=1)
+
         self.word_embedd = Embedding(num_words, word_dim, init_embedding=embedd_word)
         self.lemma_embedd = Embedding(num_lemmas, lemma_dim, init_embedding=embedd_lemma) if lemma else None
         self.pos_embedd = Embedding(num_pos, pos_dim, init_embedding=embedd_pos) if pos else None
@@ -958,7 +1023,11 @@ class NewStackPtrNet(nn.Module):
         else:
             raise ValueError('Unknown RNN mode: %s' % rnn_mode)
 
-        dim_enc = word_dim
+        if not self.pretrained_lm == 'none':
+            dim_enc = lm_hidden_size
+        else:
+            dim_enc = word_dim
+        #dim_enc = word_dim
         if pos:
             dim_enc += pos_dim
         if char:
@@ -985,9 +1054,33 @@ class NewStackPtrNet(nn.Module):
         self.type_c = nn.Linear(hidden_size * 2, type_space)  # type dense for encoder
         self.bilinear = BiLinear(type_space, type_space, self.num_labels)
 
-    def _get_encoder_output(self, input_word, input_lemma, input_char, input_pos, mask_e=None, length_e=None, hx=None):
+    def _lm_embed(self, input_ids=None, first_index=None, debug=False):
+        """
+        Input:
+            input_ids: (batch, max_bpe_len)
+            first_index: (batch, seq_len)
+        """
+        if self.pretrained_lm == 'elmo':
+            output = self.lm_encoder(input_ids)['elmo_representations'][0]
+        else:
+            # (batch, max_bpe_len, hidden_size)
+
+            lm_output = self.lm_encoder(input_ids)[0]
+            size = list(first_index.size()) + [lm_output.size()[-1]]
+            # (batch, seq_len, hidden_size)
+            output = lm_output.gather(1, first_index.unsqueeze(-1).expand(size))
+            if debug:
+                print (lm_output.size())
+                print (output.size())
+        return output
+
+    def _get_encoder_output(self, input_word, input_lemma, input_char, input_pos, mask_e=None, length_e=None, hx=None,bpes=None, first_idx=None):
         # [batch, length, word_dim]
-        word = self.word_embedd(input_word)
+        if not self.pretrained_lm == 'none':
+            word = self._lm_embed(bpes, first_idx)
+        else:
+            word = self.word_embedd(input_word)
+        #word = self.word_embedd(input_word)
         # apply dropout on input
         word = self.dropout_in(word)
 
@@ -1136,9 +1229,9 @@ class NewStackPtrNet(nn.Module):
         return hn
 
     def loss(self, input_word, input_lemma, input_char, input_pos, heads, stacked_heads, children, siblings, stacked_types, previous, next, label_smooth, skip_connect=None, mask_e=None, length_e=None,
-             mask_d=None, length_d=None, hx=None):
+             mask_d=None, length_d=None, hx=None,bpes=None,first_idx=None):
         # output from encoder [batch, length_encoder, hidden_size]
-        output_enc, hn, mask_e, _ = self._get_encoder_output(input_word, input_lemma, input_char, input_pos, mask_e=mask_e, length_e=length_e, hx=hx)
+        output_enc, hn, mask_e, _ = self._get_encoder_output(input_word, input_lemma, input_char, input_pos, mask_e=mask_e, length_e=length_e, hx=hx,bpes=bpes,first_idx=first_idx)
 
         debug = False
 
@@ -1598,7 +1691,7 @@ class NewStackPtrNet(nn.Module):
 
         return heads, types, length, children, stacked_types
 
-    def decode(self, input_word, input_lemma, input_char, input_pos, mask=None, length=None, hx=None, beam=1, leading_symbolic=0, ordered=True):
+    def decode(self, input_word, input_lemma, input_char, input_pos, mask=None, length=None, hx=None, beam=1, leading_symbolic=0, ordered=True,bpes=None, first_idx=None):
         self.decoder.reset_noise(0)
 
         debug = False
@@ -1608,7 +1701,7 @@ class NewStackPtrNet(nn.Module):
         # arc_c [batch, length, arc_space]
         # type_c [batch, length, type_space]
         # hn [num_direction, batch, hidden_size]
-        output_enc, hn, mask, length = self._get_encoder_output(input_word, input_lemma, input_char, input_pos, mask_e=mask, length_e=length, hx=hx)
+        output_enc, hn, mask, length = self._get_encoder_output(input_word, input_lemma, input_char, input_pos, mask_e=mask, length_e=length, hx=hx,bpes=bpes, first_idx=first_idx)
         # output size [batch, length_encoder, arc_space]
         arc_c = F.elu(self.arc_c(output_enc))
         # output size [batch, length_encoder, type_space]

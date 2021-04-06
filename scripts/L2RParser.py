@@ -1,9 +1,10 @@
-from __future__ import print_function
 
 __author__ = 'max'
 
 import sys
 import os
+
+from transformers import AutoTokenizer
 
 sys.path.append(".")
 sys.path.append("..")
@@ -21,11 +22,74 @@ from torch.nn.utils import clip_grad_norm_
 from torch.optim import Adam, SGD, Adamax
 from neuronlp2.io import get_logger, conllx_stacked_data
 from neuronlp2.models import NewStackPtrNet
-from neuronlp2 import utils
 from neuronlp2.io import CoNLLXWriter
 from neuronlp2.tasks import parser
+from neuronlp2.io.utils import PAD, ROOT, END
+from neuronlp2 import utils
+import string
 
+logger = get_logger("PtrParser")
+
+try:
+    from allennlp.modules.elmo import batch_to_ids
+except:
+    logger.info("can not import batch_to_ids!")
 uid = uuid.uuid4().hex[:6]
+
+def convert_tokens_to_ids(tokenizer, tokens):
+
+    all_wordpiece_list = []
+    all_first_index_list = []
+    convert_map = {"-LRB-":"(", "-RRB-":")", "-LCB-":"{", "-RCB-":"}", PAD:tokenizer.pad_token,
+                 ROOT: tokenizer.cls_token, END:tokenizer.sep_token}
+    for toks in tokens:
+        """
+        toks = [toks_[0], toks_[1]]
+        for i in range(2,len(toks_)):
+            t = toks_[i]
+            # LCB, LRB, `` have left blank
+            if t in [PAD, ROOT, END, "-RCB-","-RRB-","--","''"] or t in string.punctuation:
+                toks.append(t)
+            else:
+                toks.append(" "+t)
+        """
+        wordpiece_list = []
+        first_index_list = []
+        for i, token in enumerate(toks):
+            if token in convert_map:
+                token = convert_map[token]
+            if not (i == 1 or token in string.punctuation or token in ["--","''",
+                tokenizer.pad_token,tokenizer.cls_token, tokenizer.sep_token]):
+                token = " "+token
+            wordpiece = tokenizer.tokenize(token)
+            # add 1 for cls_token <s>
+            first_index_list.append(len(wordpiece_list)+1)
+            wordpiece_list += wordpiece
+            #logger.info (wordpiece)
+        #logger.info ("wordpiece_list:\n", wordpiece_list)
+        #logger.info (first_index_list)
+        bpe_ids = tokenizer.convert_tokens_to_ids(wordpiece_list)
+        #logger.info ("bpe_ids:\n", bpe_ids)
+        bpe_ids = tokenizer.build_inputs_with_special_tokens(bpe_ids)
+        #logger.info (bpe_ids)
+        all_wordpiece_list.append(bpe_ids)
+        all_first_index_list.append(first_index_list)
+
+    all_wordpiece_max_len = max([len(w) for w in all_wordpiece_list])
+
+    all_wordpiece = np.stack(
+          [np.pad(a, (0, all_wordpiece_max_len - len(a)), 'constant', constant_values=tokenizer.pad_token_id) for a in all_wordpiece_list])
+
+    all_first_index_max_len = max([len(i) for i in all_first_index_list])
+    all_first_index = np.stack(
+          [np.pad(a, (0, all_first_index_max_len - len(a)), 'constant', constant_values=0) for a in all_first_index_list])
+
+    # (batch, max_bpe_len)
+    input_ids = torch.from_numpy(all_wordpiece)
+    # (batch, seq_len)
+    first_indices = torch.from_numpy(all_first_index)
+
+    return input_ids, first_indices
 
 
 def main():
@@ -78,12 +142,15 @@ def main():
     args_parser.add_argument('--test2')
     args_parser.add_argument('--model_path', help='path for saving model file.', required=True)
     args_parser.add_argument('--model_name', help='name for saving model file.', required=True)
+    args_parser.add_argument('--pretrained_lm', default='none', choices=['none', 'elmo', 'bert', 'bart', 'roberta', 'xlm-r', 'electra', 'tc_bert', 'tc_bart', 'tc_roberta', 'tc_electra'],
+                             help='Pre-trained language model')
+    args_parser.add_argument('--lm_path', help='path for pretrained language model')
 
     args = args_parser.parse_args()
 
-    logger = get_logger("PtrParser")
-    print('SEMANTIC DEPENDENCY PARSER with POINTER NETWORKS')
-    print('CUDA?', torch.cuda.is_available())
+    # logger = get_logger("PtrParser")
+    logger.info('SEMANTIC DEPENDENCY PARSER with POINTER NETWORKS')
+    logger.info('CUDA?', torch.cuda.is_available())
 
     mode = args.mode
     train_path = args.train
@@ -136,6 +203,9 @@ def main():
 
     use_lemma = args.lemma
     lemma_dim = args.lemma_dim
+    # Jeffrey
+    pretrained_lm = args.pretrained_lm
+    lm_path = args.lm_path
 
     word_dict, word_dim = utils.load_embedding_dict(word_embedding, word_path)
     char_dict = None
@@ -192,8 +262,8 @@ def main():
                 embedding = np.zeros([1, word_dim]).astype(np.float32) if freeze else np.random.uniform(-scale, scale, [1, word_dim]).astype(np.float32)
                 oov += 1
             table[index, :] = embedding
-        print('word OOV: %d' % oov)
-        print(torch.__version__)
+        logger.info('word OOV: %d' % oov)
+        logger.info(torch.__version__)
         return torch.from_numpy(table)
 
     def construct_lemma_embedding_table():
@@ -210,8 +280,8 @@ def main():
                 embedding = np.zeros([1, lemma_dim]).astype(np.float32) if freeze else np.random.uniform(-scale, scale, [1, lemma_dim]).astype(np.float32)
                 oov += 1
             table[index, :] = embedding
-        print('LEMMA OOV: %d' % oov)
-        print(torch.__version__)
+        logger.info('LEMMA OOV: %d' % oov)
+        logger.info(torch.__version__)
         return torch.from_numpy(table)
 
     def construct_char_embedding_table():
@@ -229,16 +299,22 @@ def main():
                 embedding = np.random.uniform(-scale, scale, [1, char_dim]).astype(np.float32)
                 oov += 1
             table[index, :] = embedding
-        print('character OOV: %d' % oov)
+        logger.info('character OOV: %d' % oov)
         return torch.from_numpy(table)
 
     word_table = construct_word_embedding_table()
     char_table = construct_char_embedding_table()
     lemma_table = construct_lemma_embedding_table()
 
+    if pretrained_lm in ['none', 'elmo']:
+        tokenizer = None
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(lm_path)
+
     window = 3
     network = NewStackPtrNet(word_dim, num_words, lemma_dim, num_lemmas, char_dim, num_chars, pos_dim, num_pos, num_filters, window, mode, input_size_decoder, hidden_size, encoder_layers,
-                             decoder_layers, num_types, arc_space, type_space, embedd_word=word_table, embedd_char=char_table, embedd_lemma=lemma_table, p_in=p_in, p_out=p_out, p_rnn=p_rnn,
+                             decoder_layers, num_types, arc_space, type_space, pretrained_lm=pretrained_lm, lm_path=lm_path,
+                             embedd_word=word_table, embedd_char=char_table, embedd_lemma=lemma_table, p_in=p_in,p_out=p_out,p_rnn=p_rnn,
                              biaffine=True, pos=use_pos, char=use_char, lemma=use_lemma, prior_order=prior_order, skipConnect=skipConnect, grandPar=grandPar, sibling=sibling)
 
     def save_args():
@@ -253,11 +329,11 @@ def main():
         network.word_embedd.freeze()
 
     if use_gpu:
-        print('CUDA IS AVAILABLE')
+        logger.info('CUDA IS AVAILABLE')
         network.cuda()
     else:
-        print('CUDA IS NOT AVAILABLE', use_gpu)
-
+        logger.info('CUDA IS NOT AVAILABLE', use_gpu)
+    device = torch.device('cuda', 0) if use_gpu else torch.device('cpu')
     save_args()
 
     pred_writer = CoNLLXWriter(word_alphabet, lemma_alphabet, char_alphabet, pos_alphabet, type_alphabet)
@@ -349,8 +425,39 @@ def main():
     decay = 0
     max_decay = args.max_decay
     double_schedule_decay = args.double_schedule_decay
+    # Jeffrey: get_first_idx
+    def get_first_idx(tokens):
+        if not pretrained_lm == 'none':
+            srcs = tokens
+            if word.size()[0] == 1 and len(srcs) > 1:
+                srcs = [srcs]
+            if pretrained_lm == 'elmo':
+                bpes = batch_to_ids(srcs)
+                bpes = bpes.to(device)
+                first_idx = None
+                try:
+                    assert bpes.size()[:2] == word.size()
+                except:
+                    logger.info("src:\n", srcs)
+                    logger.info("bpes:", bpes.size())
+                    logger.info("words:{}".format(word.size()))
+            else:
+                bpes, first_idx = convert_tokens_to_ids(tokenizer, srcs)
+                bpes = bpes.to(device)
+                first_idx = first_idx.to(device)
+                try:
+                    assert first_idx.size() == word.size()
+                except:
+                    logger.info("bpes:\n", bpes)
+                    logger.info("src:\n", srcs)
+                    logger.info("first_idx:{}\n{}".format(first_idx.size(), first_idx))
+                    logger.info("words:{},\n{}".format(word.size(), word))
+        else:
+            bpes = first_idx = None
+        return bpes,first_idx
+    # ******************************
     for epoch in range(1, num_epochs + 1):
-        print('Epoch %d (%s, optim: %s, learning rate=%.6f, eps=%.1e, decay rate=%.2f (schedule=%d, patient=%d, decay=%d (%d, %d))): ' % (
+        logger.info('Epoch %d (%s, optim: %s, learning rate=%.6f, eps=%.1e, decay rate=%.2f (schedule=%d, patient=%d, decay=%d (%d, %d))): ' % (
             epoch, mode, opt, lr, eps, decay_rate, schedule, patient, decay, max_decay, double_schedule_decay))
 
         train_err_cov = 0.
@@ -363,15 +470,15 @@ def main():
         network.train()
         for batch in tqdm(range(1, num_batches + 1)):
             input_encoder, input_decoder = conllx_stacked_data.get_batch_stacked_variable(data_train, batch_size, unk_replace=unk_replace)
-            word, lemma, char, pos, heads, types, masks_e, lengths_e = input_encoder
+            tokens, word, lemma, char, pos, heads, types, masks_e, lengths_e = input_encoder
             stacked_heads, children, sibling, stacked_types, skip_connect, previous, next, masks_d, lengths_d = input_decoder
-
-            # print('HEADSSS', heads)
+            bpes, first_idx = get_first_idx(tokens)
+            # logger.info('HEADSSS', heads)
 
             optim.zero_grad()
 
             loss_arc, loss_type, loss_cov, num = network.loss(word, lemma, char, pos, heads, stacked_heads, children, sibling, stacked_types, previous, next, label_smooth, skip_connect=skip_connect,
-                                                              mask_e=masks_e, length_e=lengths_e, mask_d=masks_d, length_d=lengths_d)
+                                                              mask_e=masks_e, length_e=lengths_e, mask_d=masks_d, length_d=lengths_d,bpes=bpes,first_idx=first_idx)
 
             loss = loss_arc + loss_type + cov * loss_cov
             loss.backward()
@@ -399,9 +506,9 @@ def main():
         err_cov = train_err_cov / train_total
 
         err = err_arc + err_type + cov * err_cov
-        print('train: %d loss: %.4f, arc: %.4f, type: %.4f, coverage: %.4f, time: %.2fs' % (num_batches, err, err_arc, err_type, err_cov, time.time() - start_time))
+        logger.info('train: %d loss: %.4f, arc: %.4f, type: %.4f, coverage: %.4f, time: %.2fs' % (num_batches, err, err_arc, err_type, err_cov, time.time() - start_time))
 
-        print('======EVALUATING PERFORMANCE ON DEV======')
+        logger.info('======EVALUATING PERFORMANCE ON DEV======')
         # evaluate performance on dev data
         network.eval()
         # pred_filename = 'tmp/%spred_dev%d' % (str(uid), epoch)
@@ -421,8 +528,9 @@ def main():
         start_time_dev = time.time()
         for batch in tqdm(conllx_stacked_data.iterate_batch_stacked_variable(data_dev, batch_size)):
             input_encoder, _ = batch
-            word, lemma, char, pos, heads, types, masks, lengths = input_encoder
-            heads_pred, types_pred, _, _ = network.decode(word, lemma, char, pos, mask=masks, length=lengths, beam=beam, leading_symbolic=conllx_stacked_data.NUM_SYMBOLIC_TAGS)
+            tokens, word, lemma, char, pos, heads, types, masks, lengths = input_encoder
+            bpes, first_idx = get_first_idx(tokens)
+            heads_pred, types_pred, _, _ = network.decode(word, lemma, char, pos, mask=masks, length=lengths, beam=beam, leading_symbolic=conllx_stacked_data.NUM_SYMBOLIC_TAGS,bpes=bpes,first_idx=first_idx)
 
             word = word.data.cpu().numpy()
             lemma = lemma.data.cpu().numpy()
@@ -469,7 +577,7 @@ def main():
         else:
             dev_LF1 = 2 * (dev_Lprecision * dev_Lrecall) / (dev_Lprecision + dev_Lrecall)
 
-        print('CUR DEV %d: ucorr: %d, lcorr: %d, tot_gold: %d, tot_pred: %d, Uprec: %.2f%%, Urec: %.2f%%, Lprec: %.2f%%, Lrec: %.2f%%, UF1: %.2f%%, LF1: %.2f%%' % (
+        logger.info('CUR DEV %d: ucorr: %d, lcorr: %d, tot_gold: %d, tot_pred: %d, Uprec: %.2f%%, Urec: %.2f%%, Lprec: %.2f%%, Lrec: %.2f%%, UF1: %.2f%%, LF1: %.2f%%' % (
             epoch, dev_ucorr, dev_lcorr, dev_total_gold, dev_total_pred, dev_Uprecision, dev_Urecall, dev_Lprecision, dev_Lrecall, dev_UF1, dev_LF1))
 
         # if dev_lcorrect_nopunc < dev_lcorr_nopunc or (dev_lcorrect_nopunc == dev_lcorr_nopunc and dev_ucorrect_nopunc < dev_ucorr_nopunc):
@@ -486,7 +594,7 @@ def main():
             # torch.save(network, model_name)
             torch.save(network.state_dict(), model_name)
 
-            print('======EVALUATING PERFORMANCE ON TEST======')
+            logger.info('======EVALUATING PERFORMANCE ON TEST======')
             # pred_filename = 'tmp/%spred_test%d' % (str(uid), epoch)
             pred_filename = '%spred_test%d' % (str(uid), epoch)
             pred_filename = os.path.join(model_path, pred_filename)
@@ -505,8 +613,10 @@ def main():
             start_time_test = time.time()
             for batch in tqdm(conllx_stacked_data.iterate_batch_stacked_variable(data_test, batch_size)):
                 input_encoder, _ = batch
-                word, lemma, char, pos, heads, types, masks, lengths = input_encoder
-                heads_pred, types_pred, _, _ = network.decode(word, lemma, char, pos, mask=masks, length=lengths, beam=beam, leading_symbolic=conllx_stacked_data.NUM_SYMBOLIC_TAGS)
+                tokens, word, lemma, char, pos, heads, types, masks, lengths = input_encoder
+                bpes,first_idx = get_first_idx(tokens)
+                heads_pred, types_pred, _, _ = network.decode(word, lemma, char, pos, mask=masks, length=lengths, beam=beam, leading_symbolic=conllx_stacked_data.NUM_SYMBOLIC_TAGS,bpes=bpes,
+                                                              first_idx=first_idx)
 
                 word = word.data.cpu().numpy()
                 lemma = lemma.data.cpu().numpy()
@@ -549,70 +659,69 @@ def main():
             else:
                 test_LF1 = 2 * (test_Lprecision * test_Lrecall) / (test_Lprecision + test_Lrecall)
 
-            print('======EVALUATING PERFORMANCE ON TEST 2======')
-            # pred_filename = 'tmp/%spred_test%d' % (str(uid), epoch)
-            pred_filename2 = '%spred_test_two%d' % (str(uid), epoch)
-            pred_filename2 = os.path.join(model_path, pred_filename2)
-            pred_writer.start(pred_filename2)
-            # gold_filename = 'tmp/%sgold_test%d' % (str(uid), epoch)
-            gold_filename2 = '%sgold_test_two%d' % (str(uid), epoch)
-            gold_filename2 = os.path.join(model_path, gold_filename2)
-            gold_writer.start(gold_filename2)
-
-            test2_ucorrect = 0.0
-            test2_lcorrect = 0.0
-            test2_total_pred = 0
-            test2_total_gold = 0
-            test2_total_inst = 0
-
-            start_time_test2 = time.time()
-
-            for batch in tqdm(conllx_stacked_data.iterate_batch_stacked_variable(data_test2, batch_size)):
-                input_encoder, _ = batch
-                word, lemma, char, pos, heads, types, masks, lengths = input_encoder
-                heads_pred, types_pred, _, _ = network.decode(word, lemma, char, pos, mask=masks, length=lengths, beam=beam, leading_symbolic=conllx_stacked_data.NUM_SYMBOLIC_TAGS)
-
-                word = word.data.cpu().numpy()
-                lemma = lemma.data.cpu().numpy()
-                pos = pos.data.cpu().numpy()
-                lengths = lengths.cpu().numpy()
-                heads = heads.data.cpu().numpy()
-                types = types.data.cpu().numpy()
-
-                pred_writer.write(word, lemma, pos, heads_pred, types_pred, lengths, symbolic_root=True)
-                gold_writer.write(word, lemma, pos, heads, types, lengths, symbolic_root=True)
-
-                ucorr, lcorr, total_gold, total_pred, num_inst = parser.evalF1(word, lemma, pos, heads_pred, types_pred, heads, types, word_alphabet, lemma_alphabet, pos_alphabet, lengths,
-                                                                               punct_set=punct_set, symbolic_root=True)
-
-                test2_ucorrect += ucorr
-                test2_lcorrect += lcorr
-                test2_total_gold += total_gold
-                test2_total_pred += total_pred
-
-                test2_total_inst += num_inst
-
-            end_time_test2 = time.time()
-            lasted_time_test2 = end_time_test2 - start_time_test2
-            pred_writer.close()
-            gold_writer.close()
-
-            test2_Uprecision = 0.
-            test2_Lprecision = 0.
-            if dev_total_pred != 0:
-                test2_Uprecision = test2_ucorrect * 100 / test2_total_pred
-                test2_Lprecision = test2_lcorrect * 100 / test2_total_pred
-            test2_Urecall = test2_ucorrect * 100 / test2_total_gold
-            test2_Lrecall = test2_lcorrect * 100 / test2_total_gold
-            if test2_Uprecision == 0. and test2_Urecall == 0.:
-                test2_UF1 = 0.
-            else:
-                test2_UF1 = 2 * (test2_Uprecision * test2_Urecall) / (test2_Uprecision + test2_Urecall)
-            if test2_Lprecision == 0 and test2_Lrecall == 0:
-                test2_LF1 = 0.
-            else:
-                test2_LF1 = 2 * (test2_Lprecision * test2_Lrecall) / (test2_Lprecision + test2_Lrecall)
-
+            # logger.info('======EVALUATING PERFORMANCE ON TEST 2======')
+            # # pred_filename = 'tmp/%spred_test%d' % (str(uid), epoch)
+            # pred_filename2 = '%spred_test_two%d' % (str(uid), epoch)
+            # pred_filename2 = os.path.join(model_path, pred_filename2)
+            # pred_writer.start(pred_filename2)
+            # # gold_filename = 'tmp/%sgold_test%d' % (str(uid), epoch)
+            # gold_filename2 = '%sgold_test_two%d' % (str(uid), epoch)
+            # gold_filename2 = os.path.join(model_path, gold_filename2)
+            # gold_writer.start(gold_filename2)
+            #
+            # test2_ucorrect = 0.0
+            # test2_lcorrect = 0.0
+            # test2_total_pred = 0
+            # test2_total_gold = 0
+            # test2_total_inst = 0
+            #
+            # start_time_test2 = time.time()
+            #
+            # for batch in tqdm(conllx_stacked_data.iterate_batch_stacked_variable(data_test2, batch_size)):
+            #     input_encoder, _ = batch
+            #     word, lemma, char, pos, heads, types, masks, lengths = input_encoder
+            #     heads_pred, types_pred, _, _ = network.decode(word, lemma, char, pos, mask=masks, length=lengths, beam=beam, leading_symbolic=conllx_stacked_data.NUM_SYMBOLIC_TAGS)
+            #
+            #     word = word.data.cpu().numpy()
+            #     lemma = lemma.data.cpu().numpy()
+            #     pos = pos.data.cpu().numpy()
+            #     lengths = lengths.cpu().numpy()
+            #     heads = heads.data.cpu().numpy()
+            #     types = types.data.cpu().numpy()
+            #
+            #     pred_writer.write(word, lemma, pos, heads_pred, types_pred, lengths, symbolic_root=True)
+            #     gold_writer.write(word, lemma, pos, heads, types, lengths, symbolic_root=True)
+            #
+            #     ucorr, lcorr, total_gold, total_pred, num_inst = parser.evalF1(word, lemma, pos, heads_pred, types_pred, heads, types, word_alphabet, lemma_alphabet, pos_alphabet, lengths,
+            #                                                                    punct_set=punct_set, symbolic_root=True)
+            #
+            #     test2_ucorrect += ucorr
+            #     test2_lcorrect += lcorr
+            #     test2_total_gold += total_gold
+            #     test2_total_pred += total_pred
+            #
+            #     test2_total_inst += num_inst
+            #
+            # end_time_test2 = time.time()
+            # lasted_time_test2 = end_time_test2 - start_time_test2
+            # pred_writer.close()
+            # gold_writer.close()
+            #
+            # test2_Uprecision = 0.
+            # test2_Lprecision = 0.
+            # if dev_total_pred != 0:
+            #     test2_Uprecision = test2_ucorrect * 100 / test2_total_pred
+            #     test2_Lprecision = test2_lcorrect * 100 / test2_total_pred
+            # test2_Urecall = test2_ucorrect * 100 / test2_total_gold
+            # test2_Lrecall = test2_lcorrect * 100 / test2_total_gold
+            # if test2_Uprecision == 0. and test2_Urecall == 0.:
+            #     test2_UF1 = 0.
+            # else:
+            #     test2_UF1 = 2 * (test2_Uprecision * test2_Urecall) / (test2_Uprecision + test2_Urecall)
+            # if test2_Lprecision == 0 and test2_Lrecall == 0:
+            #     test2_LF1 = 0.
+            # else:
+            #     test2_LF1 = 2 * (test2_Lprecision * test2_Lrecall) / (test2_Lprecision + test2_Lrecall)
 
         else:
             # if dev_ucorr_nopunc * 100 / dev_total_nopunc < dev_ucorrect_nopunc * 100 / dev_total_nopunc - 5 or patient >= schedule:
@@ -628,19 +737,19 @@ def main():
             else:
                 patient += 1
 
-        print('----------------------------------------------------------------------------------------------------------------------------')
-        print('TIME DEV: ', lasted_time_dev, 'NUM SENTS DEV: ', dev_total_inst, 'SPEED DEV: ', dev_total_inst / lasted_time_dev)
-        print('DEV: Uprec: %.2f%%, Urec: %.2f%%, Lprec: %.2f%%, Lrec: %.2f%%, UF1: %.2f%%, LF1: %.2f%% (epoch: %d)' % (
+        logger.info('----------------------------------------------------------------------------------------------------------------------------')
+        logger.info('TIME DEV: ', lasted_time_dev, 'NUM SENTS DEV: ', dev_total_inst, 'SPEED DEV: ', dev_total_inst / lasted_time_dev)
+        logger.info('DEV: Uprec: %.2f%%, Urec: %.2f%%, Lprec: %.2f%%, Lrec: %.2f%%, UF1: %.2f%%, LF1: %.2f%% (epoch: %d)' % (
             dev_bestUprecision, dev_bestUrecall, dev_bestLprecision, dev_bestLrecall, dev_bestUF1, dev_bestLF1, best_epoch))
-        print('----------------------------------------------------------------------------------------------------------------------------')
-        print('TIME TEST: ', lasted_time_test, 'NUM SENTS TEST: ', test_total_inst, 'SPEED TEST: ', test_total_inst / lasted_time_test)
-        print('TEST: ucorr: %d, lcorr: %d, tot_gold: %d, tot_pred: %d, Uprec: %.2f%%, Urec: %.2f%%, Lprec: %.2f%%, Lrec: %.2f%%, UF1: %.2f%%, LF1: %.2f%% (epoch: %d)' % (
+        logger.info('----------------------------------------------------------------------------------------------------------------------------')
+        logger.info('TIME TEST: ', lasted_time_test, 'NUM SENTS TEST: ', test_total_inst, 'SPEED TEST: ', test_total_inst / lasted_time_test)
+        logger.info('TEST: ucorr: %d, lcorr: %d, tot_gold: %d, tot_pred: %d, Uprec: %.2f%%, Urec: %.2f%%, Lprec: %.2f%%, Lrec: %.2f%%, UF1: %.2f%%, LF1: %.2f%% (epoch: %d)' % (
             test_ucorrect, test_lcorrect, test_total_gold, test_total_pred, test_Uprecision, test_Urecall, test_Lprecision, test_Lrecall, test_UF1, test_LF1, best_epoch))
-        print('----------------------------------------------------------------------------------------------------------------------------')
-        print('TIME TEST2: ', lasted_time_test2, 'NUM SENTS TEST: ', test2_total_inst, 'SPEED TEST2: ', test2_total_inst / lasted_time_test2)
-        print('TEST2: ucorr: %d, lcorr: %d, tot_gold: %d, tot_pred: %d, Uprec: %.2f%%, Urec: %.2f%%, Lprec: %.2f%%, Lrec: %.2f%%, UF1: %.2f%%, LF1: %.2f%% (epoch: %d)' % (
-            test2_ucorrect, test2_lcorrect, test2_total_gold, test2_total_pred, test2_Uprecision, test2_Urecall, test2_Lprecision, test2_Lrecall, test2_UF1, test2_LF1, best_epoch))
-        print('============================================================================================================================')
+        logger.info('----------------------------------------------------------------------------------------------------------------------------')
+        # logger.info('TIME TEST2: ', lasted_time_test2, 'NUM SENTS TEST: ', test2_total_inst, 'SPEED TEST2: ', test2_total_inst / lasted_time_test2)
+        # logger.info('TEST2: ucorr: %d, lcorr: %d, tot_gold: %d, tot_pred: %d, Uprec: %.2f%%, Urec: %.2f%%, Lprec: %.2f%%, Lrec: %.2f%%, UF1: %.2f%%, LF1: %.2f%% (epoch: %d)' % (
+        #     test2_ucorrect, test2_lcorrect, test2_total_gold, test2_total_pred, test2_Uprecision, test2_Urecall, test2_Lprecision, test2_Lrecall, test2_UF1, test2_LF1, best_epoch))
+        logger.info('============================================================================================================================')
 
         # exit(0)
         if decay == max_decay:

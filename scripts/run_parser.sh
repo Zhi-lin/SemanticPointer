@@ -4,6 +4,9 @@ if [ ! -f "$log_file" ]; then
   touch "$log_file"
   chmod 777 "$log_file"
 fi
+lmdir=/users2/yxwang/work/data/models
+lm=none
+lmpath=$lmdir/roberta-base
 
 CUDA_VISIBLE_DEVICES=0 \
 python scripts/L2RParser.py --mode FastLSTM --num_epochs 1000 --batch_size 64 \
@@ -14,6 +17,7 @@ python scripts/L2RParser.py --mode FastLSTM --num_epochs 1000 --batch_size 64 \
  --p_in 0.33 --p_out 0.33 --p_rnn 0.33 0.33 --unk_replace 0.5 --label_smooth 1.0 --pos --char \
  --word_embedding glove --word_path \
  "/users2/yxwang/work/data/embeddings/glove/glove.6B.100d.txt.gz" --char_embedding random \
+ --pretrained_lm $lm --lm_path $lmpath \
   --train "data/$2/en_$2_train.dag" \
    --dev "data/$2/en_$2_dev.dag" \
     --test "data/$2/en_id_$2.dag" \
